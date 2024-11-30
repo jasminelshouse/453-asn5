@@ -17,13 +17,14 @@ void read_superblock(FILE *file, struct superblock *sb) {
 
 /* print verbose superblock info  */
 void print_superblock(struct superblock *sb) {
+    int zone_size = sb->blocksize * (1 << sb->log_zone_size);
     printf("Superblock Contents:\n");
     printf("Stored Fields:\n");
     printf("  ninodes %u\n", sb->ninodes);
     printf("  i_blocks %d\n", sb->i_blocks);
     printf("  z_blocks %d\n", sb->z_blocks);
     printf("  firstdata %u\n", sb->firstdata);
-    printf("  log_zone_size %d (zone size: %d)\n", sb->log_zone_size, 1 << sb->log_zone_size);
+    printf("  log_zone_size %d (zone size: %d bytes)\n", sb->log_zone_size, zone_size);
     printf("  max_file %u\n", sb->max_file);
     printf("  magic 0x%x\n", sb->magic);
     printf("  zones %u\n", sb->zones);
