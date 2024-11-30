@@ -1,5 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "minls.h"
+
 
 void print_usage() {
     printf("Usage: minls [-v][-p part[-s sub]] imagefile [path]\n");
@@ -73,6 +76,12 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    /* open image file */
+    FILE *file = fopen(imagefile, "rb"); 
+    if (file == NULL) {
+        fprintf(stderr, "error: cannot open image file '%s'\n", imagefile);
+        return 1;
+    }
     /* verbose output */
     if (verbose) {
         fprintf(stderr, "verbose mode enabled\n");
@@ -90,5 +99,7 @@ int main(int argc, char *argv[]) {
         printf("path: (root directory)\n");
     }
 
+    /* close file */
+    fclose(file); 
     return 0;
 }

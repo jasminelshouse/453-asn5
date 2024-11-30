@@ -1,3 +1,10 @@
+#ifndef MINLS_H
+#define MINLS_H
+
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 
 #define PARTITION_TABLE_LOC 0x1BE /* location of the partition table */
 #define PARTITION_TYPE 0x81 /* partition type for Minix */
@@ -8,20 +15,20 @@
 #define INODE_SIZE 64 /* size of an inode in bytes */ 
 #define DIRECTORY_ENTRY_SIZE 64 /* size of a directory entry in bytes */ 
 
-#define DIRECT ZONES 7
+#define DIRECT_ZONES 7
 
 #define FILE_TYPE 0170000 /* File type mask */ 
 #define REGULAR_FILE 0100000 /* Regular file */ 
 #define DIRECTORY 0040000 /* Directory */ 
-#define OR_PERMISSION 0000400 /* Owner read permission */
-#define OW_PERMISSION 0000200 /* Owner write permission */ 
-#define OE_PERMISSION 0000100 /* Owner execute permission */ 
+#define OWR_PERMISSION 0000400 /* Owner read permission */
+#define OWW_PERMISSION 0000200 /* Owner write permission */ 
+#define OWE_PERMISSION 0000100 /* Owner execute permission */ 
 #define GR_PERMISSION 0000040 /* Group read permission */ 
 #define GW_PERMISSION 0000020 /* Group write permission */ 
 #define GE_PERMISSION 0000010 /* Group execute permission */ 
-#define OR_PERMISSION 0000004 /* Other read permission */ 
-#define OW_PERMISSION 0000002 /* Other write permission */ 
-#define OE_PERMISSION 0000001 /* Other execute permission */
+#define OTR_PERMISSION 0000004 /* Other read permission */ 
+#define OTW_PERMISSION 0000002 /* Other write permission */ 
+#define OTE_PERMISSION 0000001 /* Other execute permission */
 
 
 struct partition_table {
@@ -43,33 +50,35 @@ struct superblock { /* Minix Version 3 Superblock
     * in minix 3.1.1
     */
     /* on disk. These fields and orientation are non–negotiable */
-    uint32 t ninodes; /* number of inodes in this filesystem */
-    uint16 t pad1; /* make things line up properly */
-    int16 t i blocks; /* # of blocks used by inode bit map */
-    int16 t z blocks; /* # of blocks used by zone bit map */
-    uint16 t firstdata; /* number of first data zone */
-    int16 t log zone size; /* log2 of blocks per zone */
-    int16 t pad2; /* make things line up again */
-    uint32 t max file; /* maximum file size */
-    uint32 t zones; /* number of zones on disk */
-    int16 t magic; /* magic number */
-    int16 t pad3; /* make things line up again */
-    uint16 t blocksize; /* block size in bytes */
-    uint8 t subversion; /* filesystem sub–version */
-}
+    uint32_t ninodes; /* number of inodes in this filesystem */
+    uint16_t pad1; /* make things line up properly */
+    int16_t i_blocks; /* # of blocks used by inode bit map */
+    int16_t z_blocks; /* # of blocks used by zone bit map */
+    uint16_t firstdata; /* number of first data zone */
+    int16_t log_zone_size; /* log2 of blocks per zone */
+    int16_t pad2; /* make things line up again */
+    uint32_t max_file; /* maximum file size */
+    uint32_t zones; /* number of zones on disk */
+    int16_t magic; /* magic number */
+    int16_t pad3; /* make things line up again */
+    uint16_t blocksize; /* block size in bytes */
+    uint8_t subversion; /* filesystem sub–version */
+};
 
 
 struct inode {
-    uint16 t mode; /* mode */
-    uint16 t links; /* number or links */
-    uint16 t uid;
-    uint16 t gid;
-    uint32 t size;
-    int32 t atime;
-    int32 t mtime;
-    int32 t ctime;
-    uint32 t zone[DIRECT ZONES];
-    uint32 t indirect;
-    uint32 t two indirect;
-    uint32 t unused;
+    uint16_t mode; /* mode */
+    uint16_t links; /* number or links */
+    uint16_t uid;
+    uint16_t gid;
+    uint32_t size;
+    int32_t atime;
+    int32_t mtime;
+    int32_t ctime;
+    uint32_t zone[DIRECT_ZONES];
+    uint32_t indirect;
+    uint32_t two_indirect;
+    uint32_t unused;
 };
+
+#endif /*MINLS_H*/
