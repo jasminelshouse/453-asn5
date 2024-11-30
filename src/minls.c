@@ -8,6 +8,42 @@ void print_usage() {
     printf("Usage: minls [-v][-p part[-s sub]] imagefile [path]\n");
 }
 
+/* read the superblock */
+void read_superblock(FILE *file, struct superblock *sb) {
+    /* superblock starts at 1024 */
+    fseek(file, 1024, SEEK_SET);
+    fread(sb, sizeof(struct superblock), 1, file);
+}
+
+/* print verbose superblock info  */
+void print_superblock(struct superblock *sb) {
+    printf("Superblock Contents:\n");
+    printf("Stored Fields:\n");
+    printf("  ninodes %u\n", sb->ninodes);
+    printf("  i_blocks %d\n", sb->i_blocks);
+    printf("  z_blocks %d\n", sb->z_blocks);
+    printf("  firstdata %u\n", sb->firstdata);
+    printf("  log_zone_size %d (zone size: %d)\n", sb->log_zone_size, 1 << sb->log_zone_size);
+    printf("  max_file %u\n", sb->max_file);
+    printf("  magic 0x%x\n", sb->magic);
+    printf("  zones %u\n", sb->zones);
+    printf("  blocksize %u\n", sb->blocksize);
+    printf("  subversion %u\n", sb->subversion);
+}
+
+void print_permissions(uint16_t mode) {
+    printf("%c", (mode & DIRECTORY) ? 'd' : '-');
+    printf("%c%c%c", (mode & OWR_PERMISSION) ? 'r' : '-',
+                     (mode & OWW_PERMISSION) ? 'w' : '-',
+                     (mode & OWE_PERMISSION) ? 'x' : '-');
+    printf("%c%c%c", (mode & GR_PERMISSION) ? 'r' : '-',
+                     (mode & GW_PERMISSION) ? 'w' : '-',
+                     (mode & GE_PERMISSION) ? 'x' : '-');
+    printf("%c%c%c ", (mode & OTR_PERMISSION) ? 'r' : '-',
+                      (mode & OTW_PERMISSION) ? 'w' : '-',
+                      (mode & OTE_PERMISSION) ? 'x' : '-');
+}
+
 int main(int argc, char *argv[]) {
     int verbose = 0; 
     int partition = -1;
@@ -82,6 +118,11 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "error: cannot open image file '%s'\n", imagefile);
         return 1;
     }
+
+    /* read superblock */
+    struct superblock sb;
+    read_superblock(file, &sb);
+
     /* verbose output */
     if (verbose) {
         fprintf(stderr, "verbose mode enabled\n");
@@ -91,6 +132,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    print_superblock(&sb);
     /* image file and path */
     printf("image file: %s\n", imagefile);
     if (path) {
