@@ -44,6 +44,89 @@ void print_permissions(uint16_t mode) {
                       (mode & OTE_PERMISSION) ? 'x' : '-');
 }
 
+void read_partition_table(FILE *file, int partition, int subpartition, int *partition_offset) {
+    uint8_t buffer[512];
+
+    /*move fp to the start of the disk and read*/
+    fseek(file, 0, SEEK_SET);
+    fread(buffer, 512, 1, file);
+
+    /*the signature at the end of the first part is 0x55AA
+    to be valid*/
+    if (buffer[510] != 0x55 || buffer[511] != 0xAA) {
+        fprintf(stderr, "error: invalid partition table signature\n");
+        fclose(file);
+        exit(1);
+    }
+
+     /*Define the partition_entry structure*/
+    struct partition_entry {
+        uint8_t bootind;    
+        uint8_t start_head;  
+        uint8_t start_sec;   
+        uint8_t start_cyl;   
+        uint8_t type;       
+        uint8_t end_head;   
+        uint8_t end_sec;     
+        uint8_t end_cyl;     
+        uint32_t lFirst;     
+        uint32_t size;      
+    } __attribute__((packed));
+
+    /* Read the primary partition table*/
+    struct partition_entry *partitions = (struct partition_entry *)&buffer[446];
+
+    /* Validate the primary partition index, should be less than 3*/
+    if (partition < 0 || partition > 3) {
+        fprintf(stderr, "error: invalid primary partition number\n");
+        fclose(file);
+        exit(1);
+    }
+
+    /* Calculate the offset for the selected partition*/
+    *partition_offset = partitions[partition].lFirst * 512;
+
+    /* Handle subpartition if provided, has not been tested*/
+    struct partition_entry *subpartitions = NULL;
+    if (subpartition != -1) {
+        /* Seek to the partition's first sector and read its subpartition table*/
+        fseek(file, *partition_offset, SEEK_SET);
+        fread(buffer, 512, 1, file);
+        subpartitions = (struct partition_entry *)&buffer[446];
+
+        /* Validate the subpartition index*/
+        if (subpartition < 0 || subpartition > 3) {
+            fprintf(stderr, "error: invalid subpartition number\n");
+            fclose(file);
+            exit(1);
+        }
+
+        /* Ensure the subpartition is Minix*/
+        if (subpartitions[subpartition].type != 0x81) {
+            fprintf(stderr, "error: invalid Minix subpartition type\n");
+            fclose(file);
+            exit(1);
+        }
+
+        /* Adjust the partition offset for the subpartition*/
+        *partition_offset += subpartitions[subpartition].lFirst * 512;
+
+        /* Debugging output for subpartition*/
+        printf("Subpartition %d: lFirst=%u, size=%u\n", 
+               subpartition, 
+               subpartitions[subpartition].lFirst, 
+               subpartitions[subpartition].size);
+    }
+
+    /* Debugging output for primary partition*/
+    printf("Partition %d: lFirst=%u, size=%u\n", 
+           partition, 
+           partitions[partition].lFirst, 
+           partitions[partition].size);
+}
+
+
+
 int main(int argc, char *argv[]) {
     int verbose = 0; 
     int partition = -1;
@@ -119,9 +202,28 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    /* Determine partition offset */
+    int partition_offset = 0;
+    if (partition != -1) {
+        read_partition_table(file, partition, subpartition, &partition_offset);
+    }
+    printf("Calculated partition offset: %d bytes\n", partition_offset);
+
+
+    /* Adjust file pointer to the start of the partition */
+    fseek(file, partition_offset, SEEK_SET);
+
     /* read superblock */
     struct superblock sb;
     read_superblock(file, &sb);
+
+    /* Validate superblock */
+    if (sb.magic != 0x4D5A) {
+        fprintf(stderr, "error: invalid Minix filesystem (magic number mismatch: 0x%x)\n", sb.magic);
+        fclose(file);
+        return 1;
+    }
+
 
     /* verbose output */
     if (verbose) {
