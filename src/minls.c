@@ -8,6 +8,19 @@ void print_usage() {
     printf("Usage: minls [-v][-p part[-s sub]] imagefile [path]\n");
 }
 
+void print_permissions(uint16_t mode) {
+    printf("%c", (mode & DIRECTORY) ? 'd' : '-');
+    printf("%c%c%c", (mode & OWR_PERMISSION) ? 'r' : '-',
+                     (mode & OWW_PERMISSION) ? 'w' : '-',
+                     (mode & OWE_PERMISSION) ? 'x' : '-');
+    printf("%c%c%c", (mode & GR_PERMISSION) ? 'r' : '-',
+                     (mode & GW_PERMISSION) ? 'w' : '-',
+                     (mode & GE_PERMISSION) ? 'x' : '-');
+    printf("%c%c%c ", (mode & OTR_PERMISSION) ? 'r' : '-',
+                      (mode & OTW_PERMISSION) ? 'w' : '-',
+                      (mode & OTE_PERMISSION) ? 'x' : '-');
+}
+
 /* read the superblock */
 void read_superblock(FILE *file, struct superblock *sb) {
     /* superblock starts at 1024 */
@@ -32,18 +45,97 @@ void print_superblock(struct superblock *sb) {
     printf("  subversion %u\n", sb->subversion);
 }
 
-void print_permissions(uint16_t mode) {
-    printf("%c", (mode & DIRECTORY) ? 'd' : '-');
-    printf("%c%c%c", (mode & OWR_PERMISSION) ? 'r' : '-',
-                     (mode & OWW_PERMISSION) ? 'w' : '-',
-                     (mode & OWE_PERMISSION) ? 'x' : '-');
-    printf("%c%c%c", (mode & GR_PERMISSION) ? 'r' : '-',
-                     (mode & GW_PERMISSION) ? 'w' : '-',
-                     (mode & GE_PERMISSION) ? 'x' : '-');
-    printf("%c%c%c ", (mode & OTR_PERMISSION) ? 'r' : '-',
-                      (mode & OTW_PERMISSION) ? 'w' : '-',
-                      (mode & OTE_PERMISSION) ? 'x' : '-');
+
+
+/* read inode*/
+void read_inode(FILE *file, struct superblock *sb, uint32_t inode_num, int partition_offset, struct inode *inode) {
+    uint32_t inode_table_start = partition_offset + 1024 + sb->i_blocks * sb->blocksize + sb->z_blocks * sb->blocksize;
+    printf("\nCalculated inode_table_start: %u\n", inode_table_start);
+
+    uint32_t inode_offset = inode_table_start + (inode_num - 1) * INODE_SIZE;
+    printf("Calculated inode_offset for inode %u: %u\n", inode_num, inode_offset);
+
+    fseek(file, inode_offset, SEEK_SET);
+    fread(inode, sizeof(struct inode), 1, file);
+
 }
+
+
+
+/* print inode */
+#include <time.h>
+
+void print_inode(struct inode *inode) {
+   /* raw hex */
+    printf("  uint16_t mode 0x%x (", inode->mode);
+    print_permissions(inode->mode);
+    printf(")\n");
+
+    printf("  uint16_t links %u\n", inode->links);
+    printf("  uint16_t uid %u\n", inode->uid);
+    printf("  uint16_t gid %u\n", inode->gid);
+    printf("  uint32_t size %u\n", inode->size);
+
+    time_t atime = inode->atime;
+    time_t mtime = inode->mtime;
+    time_t c_time = inode->c_time;
+
+
+    printf("  uint32_t atime %u --- %s", (uint32_t)atime, ctime(&atime));
+    printf("  uint32_t mtime %u --- %s", (uint32_t)mtime, ctime(&mtime));
+    printf("  uint32_t ctime %u --- %s", (uint32_t)c_time, ctime(&c_time));
+}
+
+
+void list_directory(FILE *file, struct superblock *sb, struct inode *dir_inode, int partition_offset) {
+    char buffer[sb->blocksize]; 
+    int entries_per_block = sb->blocksize / sizeof(struct fileent);
+
+    printf("/:\n");
+    int i; 
+    int j; 
+    for (i = 0; i < DIRECT_ZONES; i++) {
+        if (dir_inode->zone[i] == 0) {
+            printf("Zone %d is empty\n", i);
+            continue;
+        }
+
+       /* calculate zone offset */
+        uint32_t zone_start = partition_offset + dir_inode->zone[i] * sb->blocksize;
+        fseek(file, zone_start, SEEK_SET);
+        fread(buffer, sb->blocksize, 1, file);
+
+        struct fileent *entries = (struct fileent *)buffer;
+
+        /* iterate through directory entries */
+        for (j = 0; j < entries_per_block; j++) {
+            if (entries[j].ino == 0) {
+                continue; 
+            }
+
+            
+            struct inode entry_inode;
+            read_inode(file, sb, entries[j].ino, partition_offset, &entry_inode);
+
+            print_permissions(entry_inode.mode);
+            printf("%9u ", entry_inode.size);
+            printf("%s\n", entries[j].name);
+        }
+    }
+}
+
+
+void debug_inode_zones(struct inode *inode) {
+    int i; 
+    printf("Debugging inode zones:\n");
+    for ( i = 0; i < DIRECT_ZONES; i++) {
+        printf("zone[%d] = %u\n", i, inode->zone[i]);
+    }
+    printf("Indirect zone = %u\n", inode->indirect);
+    printf("Double indirect zone = %u\n", inode->two_indirect);
+}
+
+
 
 void read_partition_table(FILE *file, int partition, int subpartition, int *partition_offset) {
     uint8_t buffer[512];
@@ -60,22 +152,8 @@ void read_partition_table(FILE *file, int partition, int subpartition, int *part
         exit(1);
     }
 
-     /*Define the partition_entry structure*/
-    struct partition_entry {
-        uint8_t bootind;    
-        uint8_t start_head;  
-        uint8_t start_sec;   
-        uint8_t start_cyl;   
-        uint8_t type;       
-        uint8_t end_head;   
-        uint8_t end_sec;     
-        uint8_t end_cyl;     
-        uint32_t lFirst;     
-        uint32_t size;      
-    } __attribute__((packed));
-
     /* Read the primary partition table*/
-    struct partition_entry *partitions = (struct partition_entry *)&buffer[446];
+    struct partition_table *partitions = (struct partition_table *)&buffer[446];
 
     /* Validate the primary partition index, should be less than 3*/
     if (partition < 0 || partition > 3) {
@@ -85,15 +163,15 @@ void read_partition_table(FILE *file, int partition, int subpartition, int *part
     }
 
     /* Calculate the offset for the selected partition*/
-    *partition_offset = partitions[partition].lFirst * 512;
+    *partition_offset = partitions[partition].IFirst * 512;
 
     /* Handle subpartition if provided, has not been tested*/
-    struct partition_entry *subpartitions = NULL;
+    struct partition_table *subpartitions = NULL;
     if (subpartition != -1) {
         /* Seek to the partition's first sector and read its subpartition table*/
         fseek(file, *partition_offset, SEEK_SET);
         fread(buffer, 512, 1, file);
-        subpartitions = (struct partition_entry *)&buffer[446];
+        subpartitions = (struct partition_table *)&buffer[446];
 
         /* Validate the subpartition index*/
         if (subpartition < 0 || subpartition > 3) {
@@ -110,19 +188,19 @@ void read_partition_table(FILE *file, int partition, int subpartition, int *part
         }
 
         /* Adjust the partition offset for the subpartition*/
-        *partition_offset += subpartitions[subpartition].lFirst * 512;
+        *partition_offset += subpartitions[subpartition].IFirst * 512;
 
         /* Debugging output for subpartition*/
         printf("Subpartition %d: lFirst=%u, size=%u\n", 
                subpartition, 
-               subpartitions[subpartition].lFirst, 
+               subpartitions[subpartition].IFirst, 
                subpartitions[subpartition].size);
     }
 
     /* Debugging output for primary partition*/
     printf("Partition %d: lFirst=%u, size=%u\n", 
            partition, 
-           partitions[partition].lFirst, 
+           partitions[partition].IFirst, 
            partitions[partition].size);
 }
 
@@ -134,6 +212,7 @@ int main(int argc, char *argv[]) {
     int subpartition = -1;
     char *imagefile = NULL;
     char *path = NULL;
+    int i; 
 
     /* if less than 2 arguments, show usage */
     if (argc < 2) {
@@ -144,8 +223,8 @@ int main(int argc, char *argv[]) {
     /*Here we have to parse all the args, open the image file, read filesystem metadata*/
 
     /* argument parsing */
-
-    for (int i = 1; i < argc; i++) {
+    
+    for (i = 1; i < argc; i++) {
         /* see if arg is an option */
         if (argv[i][0] == '-') {
             if (strcmp(argv[i], "-v") == 0) {
@@ -225,24 +304,33 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    struct inode root_inode;
+    read_inode(file, &sb, 1, partition_offset, &root_inode);
+    list_directory(file, &sb, &root_inode, partition_offset);
+
+    debug_inode_zones(&root_inode);
 
     /* verbose output */
     if (verbose) {
-        fprintf(stderr, "verbose mode enabled\n");
-        fprintf(stderr, "partition: %d\n", partition);
-        if (subpartition != -1) {
-            fprintf(stderr, "subpartition: %d\n", subpartition);
-        }
+        // fprintf(stderr, "partition: %d\n", partition);
+        // if (subpartition != -1) {
+        //     fprintf(stderr, "subpartition: %d\n", subpartition);
+        // }
+        print_superblock(&sb);
+        
+        printf("\nFile inode:\n");
+        print_inode(&root_inode);
+
     }
 
-    print_superblock(&sb);
     /* image file and path */
-    printf("image file: %s\n", imagefile);
+    printf("\nimage file: %s\n", imagefile);
     if (path) {
         printf("path: %s\n", path);
     } else {
         printf("path: (root directory)\n");
     }
+
 
     /* close file */
     fclose(file); 

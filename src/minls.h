@@ -30,6 +30,10 @@
 #define OTW_PERMISSION 0000002 /* Other write permission */ 
 #define OTE_PERMISSION 0000001 /* Other execute permission */
 
+#ifndef DIRSIZ
+#define DIRSIZ 60
+#endif
+
 
 struct partition_table {
 	uint8_t bootind;        /* Boot magic number (0x80 if bootable) */
@@ -42,7 +46,7 @@ struct partition_table {
 	uint8_t end_cyl;
 	uint32_t IFirst;        /* First sector (LBA addressing) */
 	uint32_t size;          /* size of partition (in sectors) */
-};
+} __attribute__((packed));
 
 
 struct superblock { /* Minix Version 3 Superblock
@@ -63,7 +67,7 @@ struct superblock { /* Minix Version 3 Superblock
     int16_t pad3; /* make things line up again */
     uint16_t blocksize; /* block size in bytes */
     uint8_t subversion; /* filesystem sub–version */
-};
+} __attribute__((packed));
 
 
 struct inode {
@@ -74,11 +78,18 @@ struct inode {
     uint32_t size;
     int32_t atime;
     int32_t mtime;
-    int32_t ctime;
+    int32_t c_time;
     uint32_t zone[DIRECT_ZONES];
     uint32_t indirect;
     uint32_t two_indirect;
     uint32_t unused;
-};
+} __attribute__((packed));
+
+
+
+struct fileent {
+    uint32_t ino;
+    char name[DIRSIZ];
+} __attribute__((packed));
 
 #endif /*MINLS_H*/
