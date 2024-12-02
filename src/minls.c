@@ -40,10 +40,17 @@ void read_inode(FILE *file, int inode_num, struct inode *inode,
     int inode_block = ((inode_num - 1) / (sb->blocksize / INODE_SIZE)) + 2;  
     int inode_index = (inode_num - 1) % (sb->blocksize / INODE_SIZE);
     printf("Reading inode %d at block %d, index %d\n", inode_num, inode_block, inode_index);
+    unsigned char raw_inode[INODE_SIZE];
 
     fseek(file, sb->blocksize * inode_block + inode_index * INODE_SIZE, 
     SEEK_SET);
     fread(inode, sizeof(struct inode), 1, file);
+    printf("Raw inode data:\n");
+for (int i = 0; i < INODE_SIZE; i++) {
+    printf("%02x ", raw_inode[i]);
+    if ((i + 1) % 16 == 0) printf("\n");
+}
+memcpy(inode, raw_inode, sizeof(struct inode)); // Populate struct
 
 }
 
