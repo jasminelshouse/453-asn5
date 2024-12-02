@@ -39,9 +39,12 @@ void read_inode(FILE *file, int inode_num, struct inode *inode,
  struct superblock *sb) {
     int inode_block = ((inode_num - 1) / (sb->blocksize / INODE_SIZE)) + 2;  
     int inode_index = (inode_num - 1) % (sb->blocksize / INODE_SIZE);
+    printf("Reading inode %d at block %d, index %d\n", inode_num, inode_block, inode_index);
+
     fseek(file, sb->blocksize * inode_block + inode_index * INODE_SIZE, 
     SEEK_SET);
     fread(inode, sizeof(struct inode), 1, file);
+
 }
 
 /* list contents of a directory given its inode */
@@ -54,10 +57,14 @@ void list_directory(FILE *file, struct inode *dir_inode, struct superblock *sb)
 
      printf("/:\n");  
 
+    printf("direct zone number %d\n", DIRECT_ZONES);
     for (i = 0; i < DIRECT_ZONES; i++) {
-        if (dir_inode->zone[i] == 0) continue;
-
+        if (dir_inode->zone[i] == 0) {
+        printf("Zone %d is empty.\n", i);
+        continue;
+        }
         int block_address = sb->firstdata + (dir_inode->zone[i] - 1);
+        printf("Reading block address: %d\n", block_address);
         fseek(file, block_address * sb->blocksize, SEEK_SET);
         fread(buffer, 1, sb->blocksize, file);
         offset = 0;
@@ -154,6 +161,7 @@ int find_inode_by_path(FILE *file, const char *path, struct inode *inode,
             free(path_copy);
             return -1;
         }
+        printf("Resolving token: %s\n", token);
         if (!traverse_directory(file, &current_inode, token, 
             &current_inode, sb)) {  /* find token in curr directory */
             fprintf(stderr, "Path not found: %s\n", token);
