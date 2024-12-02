@@ -1,5 +1,5 @@
-#ifndef MINLS_H
-#define MINLS_H
+#ifndef MINGET_H
+#define MINGET_H
 
 #include <stdint.h>
 #include <stdio.h>
@@ -100,4 +100,4 @@ struct fileent {
 
 
 
-#endif /*MINLS_H*/
+#endif /*MINGET_H*/
