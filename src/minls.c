@@ -11,9 +11,8 @@ void print_usage() {
 }
 
 /* read the superblock */
-void read_superblock(FILE *file, struct superblock *sb) {
-    /* superblock starts at 1024 */
-    fseek(file, 1024, SEEK_SET);
+void read_superblock(FILE *file, struct superblock *sb, int partition_offset) {
+    fseek(file, partition_offset + 1024, SEEK_SET);
     fread(sb, sizeof(struct superblock), 1, file);
 }
 
@@ -285,14 +284,14 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    int partition_offset = 0;  /* efault to start of file */ 
+    int partition_offset = 0;  /* default to start of file */ 
     if (partition != -1) {
         read_partition_table(file, partition, subpartition, &partition_offset);
         /* adjust fp to start of selected partition*/
         fseek(file, partition_offset, SEEK_SET);  
     }
 
-    read_superblock(file, &sb);
+    read_superblock(file, &sb, partition_offset);
 
     if (sb.magic != MAGIC_NUM && sb.magic != R_MAGIC_NUM) { 
         fprintf(stderr, "invalid minix filesystem w/ magic number: (0x%x)\n", 
