@@ -16,6 +16,8 @@
 #define BYTE_511 0xAA /* byte 511 of a boot sector with valid partition table */
 #define MAGIC_NUM 0x4D5A /* the minix magic number */
 #define R_MAGIC_NUM 0x5A4D /* minix magic number on byte-reversed filesystem */
+#define MAGIC_NUM_OLD 0x2468 /* the minix magic number old  */
+#define R_MAGIC_NUM_OLD 0x6824 /* old reversed num */
 #define INODE_SIZE 64 /* size of an inode in bytes */ 
 #define DIRECTORY_ENTRY_SIZE 64 /* size of a directory entry in bytes */ 
 
@@ -37,8 +39,6 @@
 #ifndef DIRSIZ
 #define DIRSIZ 60
 #endif
-
-
 
 struct partition_table {
 	uint8_t bootind;        /* Boot magic number (0x80 if bootable) */
@@ -96,8 +96,6 @@ struct fileent {
     uint32_t ino;
     char name[DIRSIZ];
 } __attribute__((packed));
-
-
 
 
 #endif /*MINLS_H*/
