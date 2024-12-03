@@ -28,7 +28,7 @@ void print_superblock(struct superblock *sb) {
     printf("  i_blocks %d\n", sb->i_blocks);
     printf("  z_blocks %d\n", sb->z_blocks);
     printf("  firstdata %u\n", sb->firstdata);
-    printf("  log_zone_size %d (zone size: %d bytes)\n", sb->log_zone_size, 
+    printf("  log_zone_size %d (zone size: %d)\n", sb->log_zone_size, 
         zone_size);
     printf("  max_file %u\n", sb->max_file);
     printf("  magic 0x%x\n", sb->magic);
@@ -36,8 +36,6 @@ void print_superblock(struct superblock *sb) {
     printf("  blocksize %u\n", sb->blocksize);
     printf("  subversion %u\n", sb->subversion);
 }
-
-/* read an inode by its number */
 /* read an inode by its number */
 void read_inode(FILE *file, int inode_num, struct inode *inode, struct superblock *sb) {
     // Step 1: Calculate the number of inodes per block
@@ -55,7 +53,7 @@ void read_inode(FILE *file, int inode_num, struct inode *inode, struct superbloc
     // Step 5: Calculate the absolute file offset
     long inode_offset = (inode_block * sb->blocksize) + (inode_index * INODE_SIZE);
 
-    printf("Reading inode %d at block %d (start block: %d), index %d, offset %ld\n",
+    printf("\nReading inode %d at block %d (start block: %d), index %d, offset %ld\n",
            inode_num, inode_block, inode_start_block, inode_index, inode_offset);
 
     // Step 6: Seek to the calculated offset
@@ -97,24 +95,31 @@ void list_directory(FILE *file, struct inode *dir_inode, struct superblock *sb) 
             continue;
         }
 
-        int max_zone = sb->zones;
-        if (dir_inode->zone[i] < 1 || dir_inode->zone[i] > max_zone) {
-            printf("Zone[%d] is out of valid range and has been skipped.\n", i);
+        int block_address = sb->firstdata + (dir_inode->zone[i] - 1);
+        fseek(file, block_address * sb->blocksize, SEEK_SET);
+        size_t read_size = fread(buffer, 1, sb->blocksize, file);
+        if (read_size != sb->blocksize) {
+            fprintf(stderr, "Error reading block %d\n", i);
             continue;
         }
 
-        int block_address = sb->firstdata + (dir_inode->zone[i] - 1);
-        printf("Reading block address: %d\n", block_address);
-
-        fseek(file, block_address * sb->blocksize, SEEK_SET);
-        fread(buffer, 1, sb->blocksize, file);
+        // printf("Zone[%d] Raw Data:\n", i);
+        // for (int j = 0; j < sb->blocksize; j++) {
+        //     printf("%02x ", buffer[j]);
+        //     if ((j + 1) % 16 == 0) printf("\n");
+        // }
 
         int offset = 0;
-        while (offset < sb->blocksize) {
+        while (offset + sizeof(struct fileent) <= sb->blocksize && offset < dir_inode->size) {
             struct fileent *entry = (struct fileent *)(buffer + offset);
-            if (entry->ino != 0) {
-                printf("Inode %d, Name %s\n", entry->ino, entry->name);
+
+            if (entry->ino > 0 && entry->ino <= sb->ninodes) {
+                entry->name[DIRSIZ - 1] = '\0';  // Ensure null-termination
+                printf("Inode %u, Name %s\n", entry->ino, entry->name);
+            } else {
+                printf("Invalid entry at offset %d (ino: %u)\n", offset, entry->ino);
             }
+
             offset += sizeof(struct fileent);
         }
     }
@@ -169,21 +174,21 @@ int traverse_directory(FILE *file, struct inode *current_inode,
 
 void print_inode(struct inode *inode) {
     printf("\nFile inode:\n");
-    printf("uint16_t mode 0x%x (%s)\n", inode->mode, 
+    printf("  uint16_t mode 0x%x (%s)\n", inode->mode, 
     get_permissions(inode->mode));
-    printf("uint16_t links %d\n", inode->links);
-    printf("uint16_t uid %d\n", inode->uid);
-    printf("uint16_t gid %d\n", inode->gid);
-    printf("uint32_t size %u\n", inode->size);
+    printf("  uint16_t links %d\n", inode->links);
+    printf("  uint16_t uid %d\n", inode->uid);
+    printf("  uint16_t gid %d\n", inode->gid);
+    printf("  uint32_t size %u\n", inode->size);
     time_t atime = inode->atime;
-    printf("uint32_t atime %u --- %s", inode->atime, ctime(&atime));
+    printf("  uint32_t atime %u --- %s", inode->atime, ctime(&atime));
     time_t mtime = inode->mtime;
-    printf("uint32_t mtime %u --- %s", inode->mtime, ctime(&mtime));
+    printf("  uint32_t mtime %u --- %s", inode->mtime, ctime(&mtime));
     time_t c_time = inode->c_time;
-    printf("uint32_t c_time %u --- %s", inode->c_time, ctime(&c_time));
+    printf("  uint32_t ctime %u --- %s", inode->c_time, ctime(&c_time));
     printf("\nDirect zones:\n");
     for (int i = 0; i < DIRECT_ZONES; i++) {
-        printf("zone[%d] = %u\n", i, inode->zone[i]);
+        printf("  zone[%d] = %u\n", i, inode->zone[i]);
     }
     printf("uint32_t indirect %u\n", inode->indirect);
     printf("uint32_t double %u\n", inode->two_indirect);
