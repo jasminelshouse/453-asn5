@@ -11,20 +11,21 @@ void print_usage() {
 }
 
 void read_superblock(FILE *file, struct superblock *sb, int partition_offset) {
-    /* move fp to location of superblock*/
-    fseek(file, partition_offset + 1024, SEEK_SET);
+    long superblock_position = partition_offset + 1024;  // Assume superblock is 1024 bytes into the partition.
+    fseek(file, superblock_position, SEEK_SET);
+    printf("Attempting to read superblock at byte offset: %ld\n", superblock_position);
 
-    /* read sb data into structure */
-    fread(sb, sizeof(struct superblock), 1, file);
-
-    /* validate magic num */
-    if (sb->magic != MAGIC_NUM && sb->magic != R_MAGIC_NUM) {
-
-        /* error message if not valid */
-        fprintf(stderr, "Bad magic number. (0x%x)\nThis doesn’t look like "
-               "a MINIX filesystem.\n", sb->magic);
+    size_t read_count = fread(sb, sizeof(struct superblock), 1, file);
+    if (read_count != 1) {
+        perror("Failed to read superblock");
         exit(EXIT_FAILURE);
     }
+
+    // printf("Read superblock: magic number = 0x%X\n", sb->magic);
+    // if (sb->magic != MAGIC_NUM && sb->magic != R_MAGIC_NUM) {
+    //     fprintf(stderr, "Bad magic number. (0x%X)\nThis doesn’t look like a MINIX filesystem.\n", sb->magic);
+    //     exit(EXIT_FAILURE);
+    // }
 }
 
 /* self explanatory */
@@ -43,6 +44,23 @@ void print_superblock(struct superblock *sb) {
     printf("  blocksize %u\n", sb->blocksize);
     printf("  subversion %u\n", sb->subversion);
 }
+
+// void explore_superblock(FILE *file, int partition_offset) {
+//     struct superblock sb;
+//     // Try a broader range of offsets with smaller steps
+//     for (int offset = 0; offset <= 16384; offset += 512) {  // Increment by sector size
+//         fseek(file, partition_offset + offset, SEEK_SET);
+//         fread(&sb, sizeof(struct superblock), 1, file);
+//         if (sb.magic == MAGIC_NUM || sb.magic == R_MAGIC_NUM) {
+//             printf("Valid Minix superblock found at offset %d:\n", partition_offset + offset);
+//             print_superblock(&sb);  // Assuming this function prints the details of the superblock
+//             break;
+//         } else {
+//             printf("Checked at offset %d, not a Minix superblock. Magic number: 0x%X\n", partition_offset + offset, sb.magic);
+//         }
+//     }
+// }
+
 
 void read_inode(FILE *file, int inode_num, struct inode *inode,
                 struct superblock *sb) {
@@ -88,6 +106,8 @@ const char *get_permissions(uint16_t mode) {
 }
 
 void list_directory(FILE *file, struct inode *dir_inode, struct superblock *sb){
+    int i;
+    int block_address;
     if (!(dir_inode->mode & DIRECTORY)) {
         fprintf(stderr, "Error: Not a directory.\n");
         return;
@@ -101,11 +121,13 @@ void list_directory(FILE *file, struct inode *dir_inode, struct superblock *sb){
 
     printf("/:\n");
 
+    printf("%s %5d %s\n", get_permissions(dir_inode->mode), dir_inode->size, ".");
+
     /* iterate through direct zones of directory inode */
-    for (int i = 0; i < DIRECT_ZONES; i++) {
+    for  (i = 0; i < DIRECT_ZONES; i++) {
         if (dir_inode->zone[i] == 0) continue;
 
-        int block_address = sb->firstdata;
+        block_address = sb->firstdata;
 
         /* seek to calculated block position in file*/
         fseek(file, block_address * sb->blocksize, SEEK_SET);
@@ -213,59 +235,69 @@ int find_inode_by_path(FILE *file, const char *path, struct inode *inode,
     return 0;
 }
 
-void read_partition_table(FILE *file, int partition, int subpartition, 
-    int *partition_offset) {
-    uint8_t buffer[SECTOR_SIZE];
+void validate_superblock(FILE *file, int partition_offset) {
+    struct superblock sb;
+    fseek(file, partition_offset + 1024, SEEK_SET);  // Superblock is typically 1024 bytes in
+    fread(&sb, sizeof(struct superblock), 1, file);
 
-    fseek(file, 0, SEEK_SET);
-    fread(buffer, SECTOR_SIZE, 1, file);
-
-    if (buffer[BOOT_SIG_OFFSET] != 0x55 || buffer[BOOT_SIG_OFFSET + 1] != 0xAA) 
-    {
-        fprintf(stderr, "error: invalid partition table signature\n");
-        fclose(file);
-        exit(1);
+    if (sb.magic == MAGIC_NUM || sb.magic == R_MAGIC_NUM) {
+        printf("Valid Minix superblock found at partition offset: %d\n", partition_offset);
+    } else {
+        fprintf(stderr, "No valid Minix superblock found at partition offset: %d\n", partition_offset);
+        exit(EXIT_FAILURE);
     }
-
-    struct partition_table *partitions = 
-        (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
-    if (partition < 0 || partition > 3) {
-        fprintf(stderr, "error: invalid primary partition number\n");
-        fclose(file);
-        exit(1);
-    }
-
-    *partition_offset = partitions[partition].IFirst * SECTOR_SIZE;
-    if (partitions[partition].type == EXTENDED_PARTITION && subpartition != -1){
-        fseek(file, *partition_offset, SEEK_SET);
-        fread(buffer, SECTOR_SIZE, 1, file);
-        struct partition_table *subpartitions = 
-            (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
-
-        if (subpartition < 0 || subpartition > 3) {
-            fprintf(stderr, "error: invalid subpartition number\n");
-            fclose(file);
-            exit(1);
-        }
-
-        if (subpartitions[subpartition].type != PARTITION_TYPE) {
-            fprintf(stderr, "error: invalid Minix subpartition type\n");
-            fclose(file);
-            exit(1);
-        }
-
-        *partition_offset = partitions[partition].IFirst * SECTOR_SIZE;
-        printf("Subpartition %d: lFirst=%u, size=%u\n", 
-               subpartition, 
-               subpartitions[subpartition].IFirst, 
-               subpartitions[subpartition].size);
-    }
-
-    printf("Partition %d: lFirst=%u, size=%u\n", 
-           partition, 
-           partitions[partition].IFirst, 
-           partitions[partition].size);
 }
+
+void read_partition_table(FILE *file, int partition, int subpartition, int *partition_offset) {
+    struct partition_table entries[4];
+
+    // Read the partition table from the MBR
+    fseek(file, PARTITION_TABLE_OFFSET, SEEK_SET);
+    fread(entries, sizeof(struct partition_table), 4, file);
+
+    if (partition < 0 || partition >= 4) {
+        fprintf(stderr, "Invalid partition number: %d\n", partition);
+        exit(EXIT_FAILURE);
+    }
+
+    struct partition_table primary = entries[partition];
+
+    if (primary.type != PARTITION_TYPE && primary.type != EXTENDED_PARTITION) {
+        fprintf(stderr, "Partition %d is not a Minix or extended partition.\n", partition);
+        exit(EXIT_FAILURE);
+    }
+
+    // Calculate the offset to the start of the partition
+    *partition_offset = primary.IFirst * SECTOR_SIZE;
+    printf("primary.IFirst: %d\n", primary.IFirst);
+    printf("sector size: %d\n", SECTOR_SIZE);
+    printf("Navigating to partition %d at offset %d bytes.\n", partition, *partition_offset);
+
+    if (primary.type == EXTENDED_PARTITION && subpartition >= 0) {
+        printf("Navigating to subpartition %d within extended partition.\n", subpartition);
+        struct partition_table sub_entries[2];
+        int extended_offset = *partition_offset;
+
+        for (int i = 0; i <= subpartition; i++) {
+            fseek(file, extended_offset, SEEK_SET);
+            fread(sub_entries, sizeof(struct partition_table), 2, file);
+
+            if (i < subpartition) {
+                if (sub_entries[1].IFirst != 0) {
+                    extended_offset = sub_entries[1].IFirst * SECTOR_SIZE;
+                } else {
+                    fprintf(stderr, "Subpartition %d not found.\n", subpartition);
+                    exit(EXIT_FAILURE);
+                }
+            } else {
+                *partition_offset = sub_entries[0].IFirst * SECTOR_SIZE;
+            }
+        }
+    }
+
+    printf("Computed partition offset: %d bytes\n", *partition_offset);
+}
+
 
 
 int main(int argc, char *argv[]) {
@@ -332,11 +364,19 @@ int main(int argc, char *argv[]) {
 
     int partition_offset = 0;  /* default to start of file */ 
     if (partition != -1) {
-        read_partition_table(file, partition, subpartition, &partition_offset);        
+        read_partition_table(file, partition, subpartition, &partition_offset);
+        // validate_superblock(file, partition_offset);
+        // Read and validate the superblock
+    read_superblock(file, &sb, partition_offset + SECTOR_SIZE);
+    read_inode(file, 1, &target_inode, &sb);
+        printf("Computed partition offset main: %d\n", partition_offset);
+
+        // // Call to explore superblock at various offsets
+        // explore_superblock(file, partition_offset);        
     }
 
-    read_superblock(file, &sb, partition_offset);
-
+    
+    print_superblock(&sb);
     if (path == NULL) {
         /* if no path, assume root */
         read_inode(file, 1, &target_inode, &sb);
