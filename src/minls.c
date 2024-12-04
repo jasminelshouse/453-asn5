@@ -4,31 +4,38 @@
 #include <time.h>
 #include "minls.h"
 
-
 #define S_ISDIR(mode) (((mode) & DIRECTORY) == DIRECTORY)
-
- 
 
 void print_usage() {
     printf("Usage: minls [-v][-p part[-s sub]] imagefile [path]\n");
 }
 
-/* read the superblock */
 void read_superblock(FILE *file, struct superblock *sb, int partition_offset) {
+    /* move fp to location of superblock*/
     fseek(file, partition_offset + 1024, SEEK_SET);
+
+    /* read sb data into structure */
     fread(sb, sizeof(struct superblock), 1, file);
+
+    /* validate magic num */
+    if (sb->magic != MAGIC_NUM && sb->magic != R_MAGIC_NUM) {
+
+        /* error message if not valid */
+        fprintf(stderr, "Bad magic number. (0x%x)\nThis doesn’t look like "
+               "a MINIX filesystem.\n", sb->magic);
+        exit(EXIT_FAILURE);
+    }
 }
 
-/* print verbose superblock info  */
+/* self explanatory */
 void print_superblock(struct superblock *sb) {
     int zone_size = sb->blocksize * (1 << sb->log_zone_size);
-    printf("Superblock Contents:\n");
-    printf("Stored Fields:\n");
+    printf("\nSuperblock Contents:\nStored Fields:\n");
     printf("  ninodes %u\n", sb->ninodes);
     printf("  i_blocks %d\n", sb->i_blocks);
     printf("  z_blocks %d\n", sb->z_blocks);
     printf("  firstdata %u\n", sb->firstdata);
-    printf("  log_zone_size %d (zone size: %d)\n", sb->log_zone_size, 
+    printf("  log_zone_size %d (zone size: %d)\n", sb->log_zone_size,
         zone_size);
     printf("  max_file %u\n", sb->max_file);
     printf("  magic 0x%x\n", sb->magic);
@@ -36,98 +43,34 @@ void print_superblock(struct superblock *sb) {
     printf("  blocksize %u\n", sb->blocksize);
     printf("  subversion %u\n", sb->subversion);
 }
-/* read an inode by its number */
-void read_inode(FILE *file, int inode_num, struct inode *inode, struct superblock *sb) {
-    // Step 1: Calculate the number of inodes per block
+
+void read_inode(FILE *file, int inode_num, struct inode *inode,
+                struct superblock *sb) {
     int inodes_per_block = sb->blocksize / INODE_SIZE;
-
-    // Step 2: Calculate the inode table's start block
-    int inode_start_block = 2 + sb->i_blocks + sb->z_blocks; // After inode and zone bitmaps
-
-    // Step 3: Determine which block the inode is in
+    int inode_start_block = 2 + sb->i_blocks + sb->z_blocks;
     int inode_block = ((inode_num - 1) / inodes_per_block) + inode_start_block;
-
-    // Step 4: Determine the position of the inode within the block
     int inode_index = (inode_num - 1) % inodes_per_block;
+    long inode_offset = (inode_block * sb->blocksize) + 
+        (inode_index * INODE_SIZE);
 
-    // Step 5: Calculate the absolute file offset
-    long inode_offset = (inode_block * sb->blocksize) + (inode_index * INODE_SIZE);
-
-    printf("\nReading inode %d at block %d (start block: %d), index %d, offset %ld\n",
-           inode_num, inode_block, inode_start_block, inode_index, inode_offset);
-
-    // Step 6: Seek to the calculated offset
-    fseek(file, inode_offset, SEEK_SET);
-
-    // Step 7: Read the raw inode data
-    unsigned char raw_inode[INODE_SIZE];
-    size_t read_size = fread(raw_inode, 1, INODE_SIZE, file);
-    if (read_size != INODE_SIZE) {
-        fprintf(stderr, "Error reading inode: expected %d bytes, got %zu\n", INODE_SIZE, read_size);
-        memset(inode, 0, sizeof(struct inode)); // Zero out inode to prevent garbage data
+    /* seek calculated inode offset within file */
+    if (fseek(file, inode_offset, SEEK_SET) != 0) {
+        perror("Failed to seek to inode position");
         return;
     }
 
-    // Step 8: Debugging output for raw inode data
-    printf("\nRaw inode data:\n");
-    for (int i = 0; i < INODE_SIZE; i++) {
-        printf("%02x ", raw_inode[i]);
-        if ((i + 1) % 16 == 0) printf("\n");
+    /* buffer to hold the raw inode data read from file */
+    unsigned char raw_inode[INODE_SIZE];
+    if (fread(raw_inode, INODE_SIZE, 1, file) != 1) {
+        perror("Failed to read inode from disk");
+        return;
     }
 
-    // Step 9: Populate the inode structure
+    /* copy into inode structure */
     memcpy(inode, raw_inode, sizeof(struct inode));
 }
 
-/* list contents of a directory given its inode */
-void list_directory(FILE *file, struct inode *dir_inode, struct superblock *sb) {
-    char *buffer = malloc(sb->blocksize);
-    if (!buffer) {
-        fprintf(stderr, "Memory allocation failed\n");
-        return;
-    }
-
-    printf("/:\n");
-
-    for (int i = 0; i < DIRECT_ZONES; i++) {
-        if (dir_inode->zone[i] == 0) {
-            printf("Zone %d is empty.\n", i);
-            continue;
-        }
-
-        int block_address = sb->firstdata + (dir_inode->zone[i] - 1);
-        fseek(file, block_address * sb->blocksize, SEEK_SET);
-        size_t read_size = fread(buffer, 1, sb->blocksize, file);
-        if (read_size != sb->blocksize) {
-            fprintf(stderr, "Error reading block %d\n", i);
-            continue;
-        }
-
-        // printf("Zone[%d] Raw Data:\n", i);
-        // for (int j = 0; j < sb->blocksize; j++) {
-        //     printf("%02x ", buffer[j]);
-        //     if ((j + 1) % 16 == 0) printf("\n");
-        // }
-
-        int offset = 0;
-        while (offset + sizeof(struct fileent) <= sb->blocksize && offset < dir_inode->size) {
-            struct fileent *entry = (struct fileent *)(buffer + offset);
-
-            if (entry->ino > 0 && entry->ino <= sb->ninodes) {
-                entry->name[DIRSIZ - 1] = '\0';  // Ensure null-termination
-                printf("Inode %u, Name %s\n", entry->ino, entry->name);
-            } else {
-                printf("Invalid entry at offset %d (ino: %u)\n", offset, entry->ino);
-            }
-
-            offset += sizeof(struct fileent);
-        }
-    }
-
-    free(buffer);
-}
-
-
+/* self explanatory */
 const char *get_permissions(uint16_t mode) {
     static char perms[11];
     perms[0] = (mode & DIRECTORY) ? 'd' : '-';
@@ -142,6 +85,48 @@ const char *get_permissions(uint16_t mode) {
     perms[9] = (mode & OTE_PERMISSION) ? 'x' : '-';
     perms[10] = '\0';
     return perms;
+}
+
+void list_directory(FILE *file, struct inode *dir_inode, struct superblock *sb){
+    if (!(dir_inode->mode & DIRECTORY)) {
+        fprintf(stderr, "Error: Not a directory.\n");
+        return;
+    }
+
+    char *buffer = malloc(sb->blocksize);
+    if (!buffer) {
+        fprintf(stderr, "Memory allocation failed.\n");
+        return;
+    }
+
+    printf("/:\n");
+
+    /* iterate through direct zones of directory inode */
+    for (int i = 0; i < DIRECT_ZONES; i++) {
+        if (dir_inode->zone[i] == 0) continue;
+
+        int block_address = sb->firstdata;
+
+        /* seek to calculated block position in file*/
+        fseek(file, block_address * sb->blocksize, SEEK_SET);
+        fread(buffer, sb->blocksize, 1, file);
+
+        /* process each directory entry within block */
+        int offset = 0;
+        while (offset < sb->blocksize) {
+            struct fileent *entry = (struct fileent *)(buffer + offset);
+            if (entry->ino != 0) {
+                struct inode entry_inode;
+                read_inode(file, entry->ino, &entry_inode, sb);
+                printf("%s %5d %s\n", get_permissions(entry_inode.mode),
+                 entry_inode.size, entry->name);
+            }
+            /* move to next entry */
+            offset += sizeof(struct fileent);
+        }
+    }
+    /* free buffer */
+    free(buffer);
 }
 
 int traverse_directory(FILE *file, struct inode *current_inode, 
@@ -173,6 +158,7 @@ int traverse_directory(FILE *file, struct inode *current_inode,
 
 
 void print_inode(struct inode *inode) {
+    int i; 
     printf("\nFile inode:\n");
     printf("  uint16_t mode 0x%x (%s)\n", inode->mode, 
     get_permissions(inode->mode));
@@ -187,11 +173,12 @@ void print_inode(struct inode *inode) {
     time_t c_time = inode->c_time;
     printf("  uint32_t ctime %u --- %s", inode->c_time, ctime(&c_time));
     printf("\nDirect zones:\n");
-    for (int i = 0; i < DIRECT_ZONES; i++) {
+    for (i = 0; i < DIRECT_ZONES; i++) {
         printf("  zone[%d] = %u\n", i, inode->zone[i]);
     }
     printf("uint32_t indirect %u\n", inode->indirect);
     printf("uint32_t double %u\n", inode->two_indirect);
+    printf("\n");
 }
 
 int find_inode_by_path(FILE *file, const char *path, struct inode *inode,
@@ -290,6 +277,7 @@ int main(int argc, char *argv[]) {
     int i; 
     FILE *file;
     struct superblock sb;
+    struct inode target_inode;
 
     if (argc < 2) {
         print_usage();
@@ -344,51 +332,34 @@ int main(int argc, char *argv[]) {
 
     int partition_offset = 0;  /* default to start of file */ 
     if (partition != -1) {
-        read_partition_table(file, partition, subpartition, &partition_offset);
-        /* adjust fp to start of selected partition*/
-        fseek(file, partition_offset, SEEK_SET);  
+        read_partition_table(file, partition, subpartition, &partition_offset);        
     }
 
     read_superblock(file, &sb, partition_offset);
 
-    if (sb.magic != MAGIC_NUM && sb.magic != R_MAGIC_NUM) { 
-        fprintf(stderr, "invalid minix filesystem w/ magic number: (0x%x)\n", 
-            sb.magic);
-
-        fclose(file);
-        return 1;
-    }
-
-    if (verbose) {
-        print_superblock(&sb);
-    }
-
-    struct inode target_inode;
-    if (path != NULL) {
+    if (path == NULL) {
+        /* if no path, assume root */
+        read_inode(file, 1, &target_inode, &sb);
+    } else {
+        /* find inode by specified path*/
         if (find_inode_by_path(file, path, &target_inode, &sb) != 0) {
+            fprintf(stderr, "Error: Path not found '%s'\n", path);
             fclose(file);
             return 1;
         }
-
-        if (target_inode.mode & DIRECTORY) {
-            list_directory(file, &target_inode, &sb);
-            print_inode(&target_inode);
-        } else {
-            list_directory(file, &target_inode, &sb);
-            print_inode(&target_inode);
-        }
-    } else {
-        /* if no path, assume root */
-        read_inode(file, 1, &target_inode, &sb);
-        if (target_inode.mode & DIRECTORY) {
-            list_directory(file, &target_inode, &sb);
-            print_inode(&target_inode);
-        } else {
-            list_directory(file, &target_inode, &sb);
-            print_inode(&target_inode);
-        }
+    }
+    
+    if (verbose) {
+        print_superblock(&sb);
+        print_inode(&target_inode);
     }
 
-    fclose(file); 
+    if (target_inode.mode & DIRECTORY) {
+        list_directory(file, &target_inode, &sb);
+    } else {
+        print_inode(&target_inode); 
+    }
+
+    fclose(file);
     return 0;
 }
