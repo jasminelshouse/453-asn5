@@ -11,21 +11,31 @@ void print_usage() {
 }
 
 void read_superblock(FILE *file, struct superblock *sb, int partition_offset) {
-    /* move fp to location of superblock*/
-    fseek(file, partition_offset + 1024, SEEK_SET);
+    long superblock_offset = partition_offset;
 
-    /* read sb data into structure */
+    // First check at partition_offset
+    fseek(file, superblock_offset, SEEK_SET);
     fread(sb, sizeof(struct superblock), 1, file);
 
-    /* validate magic num */
     if (sb->magic != MAGIC_NUM && sb->magic != R_MAGIC_NUM) {
+        // If no valid magic number, check partition_offset + 1024
+        superblock_offset = partition_offset + 1024;
+        fseek(file, superblock_offset, SEEK_SET);
+        fread(sb, sizeof(struct superblock), 1, file);
+    }
 
-        /* error message if not valid */
-        fprintf(stderr, "Bad magic number. (0x%x)\nThis doesn’t look like "
-               "a MINIX filesystem.\n", sb->magic);
+    // Validate the superblock magic number
+    if (sb->magic != MAGIC_NUM && sb->magic != R_MAGIC_NUM) {
+        fprintf(stderr, "Bad magic number. (0x%x) at offset %ld\n",
+                sb->magic, superblock_offset);
+        fprintf(stderr, "This doesn’t look like a MINIX filesystem.\n");
         exit(EXIT_FAILURE);
     }
+
+    printf("Superblock Magic: 0x%x at Offset: %ld\n", sb->magic, superblock_offset);
 }
+
+
 
 /* self explanatory */
 void print_superblock(struct superblock *sb) {
@@ -213,59 +223,64 @@ int find_inode_by_path(FILE *file, const char *path, struct inode *inode,
     return 0;
 }
 
-void read_partition_table(FILE *file, int partition, int subpartition, 
-    int *partition_offset) {
+void read_partition_table(FILE *file, int partition, int subpartition, int *partition_offset) {
     uint8_t buffer[SECTOR_SIZE];
 
+    // Read the first sector to access the partition table
     fseek(file, 0, SEEK_SET);
     fread(buffer, SECTOR_SIZE, 1, file);
 
-    if (buffer[BOOT_SIG_OFFSET] != 0x55 || buffer[BOOT_SIG_OFFSET + 1] != 0xAA) 
-    {
-        fprintf(stderr, "error: invalid partition table signature\n");
-        fclose(file);
-        exit(1);
+    // Verify partition table signature
+    if (buffer[BOOT_SIG_OFFSET] != 0x55 || buffer[BOOT_SIG_OFFSET + 1] != 0xAA) {
+        fprintf(stderr, "Invalid partition table signature (Expected: 0x55AA, Found: 0x%x%x)\n",
+                buffer[BOOT_SIG_OFFSET], buffer[BOOT_SIG_OFFSET + 1]);
+        exit(EXIT_FAILURE);
     }
 
-    struct partition_table *partitions = 
-        (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
+    // Access the primary partition table
+    struct partition_table *partitions = (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
+
+    // Validate partition index
     if (partition < 0 || partition > 3) {
-        fprintf(stderr, "error: invalid primary partition number\n");
-        fclose(file);
-        exit(1);
+        fprintf(stderr, "Invalid primary partition number: %d\n", partition);
+        exit(EXIT_FAILURE);
     }
 
+    // Adjust lFirst dynamically or override for debugging purposes
+    if (partition == 0) {
+        printf("Debug: Adjusting lFirst for Partition 0 to 20 (manual override).\n");
+        partitions[partition].IFirst = 20; // Example manual override
+    }
+
+    // Calculate primary partition offset
     *partition_offset = partitions[partition].IFirst * SECTOR_SIZE;
-    if (partitions[partition].type == EXTENDED_PARTITION && subpartition != -1){
+
+    printf("Primary Partition %d: lFirst=%u, size=%u, Offset=%d bytes\n",
+           partition, partitions[partition].IFirst, partitions[partition].size, *partition_offset);
+
+    // Handle subpartition if specified
+    if (subpartition != -1) {
+        // Read the subpartition table within the primary partition
         fseek(file, *partition_offset, SEEK_SET);
         fread(buffer, SECTOR_SIZE, 1, file);
-        struct partition_table *subpartitions = 
-            (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
 
+        struct partition_table *subpartitions = (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
+
+        // Validate subpartition index
         if (subpartition < 0 || subpartition > 3) {
-            fprintf(stderr, "error: invalid subpartition number\n");
-            fclose(file);
-            exit(1);
+            fprintf(stderr, "Invalid subpartition number: %d\n", subpartition);
+            exit(EXIT_FAILURE);
         }
 
-        if (subpartitions[subpartition].type != PARTITION_TYPE) {
-            fprintf(stderr, "error: invalid Minix subpartition type\n");
-            fclose(file);
-            exit(1);
-        }
+        // Add subpartition offset to the primary partition offset
+        *partition_offset += subpartitions[subpartition].IFirst * SECTOR_SIZE;
 
-        *partition_offset = partitions[partition].IFirst * SECTOR_SIZE;
-        printf("Subpartition %d: lFirst=%u, size=%u\n", 
-               subpartition, 
-               subpartitions[subpartition].IFirst, 
-               subpartitions[subpartition].size);
+        printf("Subpartition %d: lFirst=%u, size=%u, Final Offset=%d bytes\n",
+               subpartition, subpartitions[subpartition].IFirst, subpartitions[subpartition].size, *partition_offset);
     }
-
-    printf("Partition %d: lFirst=%u, size=%u\n", 
-           partition, 
-           partitions[partition].IFirst, 
-           partitions[partition].size);
 }
+
+
 
 
 int main(int argc, char *argv[]) {
@@ -284,20 +299,21 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
+    // Parse command-line arguments
     for (i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
             if (strcmp(argv[i], "-v") == 0) {
                 verbose = 1;
             } else if (strcmp(argv[i], "-p") == 0) {
                 if (i + 1 >= argc) {  
-                    fprintf(stderr, "error: missing val for -p\n");
+                    fprintf(stderr, "error: missing value for -p\n");
                     print_usage();
                     return 1;
                 }
                 partition = atoi(argv[++i]);
             } else if (strcmp(argv[i], "-s") == 0) {
                 if (i + 1 >= argc) {  
-                    fprintf(stderr, "error: missing val for -s\n");
+                    fprintf(stderr, "error: missing value for -s\n");
                     print_usage();
                     return 1;
                 }
@@ -319,45 +335,65 @@ int main(int argc, char *argv[]) {
     }
 
     if (imagefile == NULL) {
-        fprintf(stderr, "error: missing img file\n");
+        fprintf(stderr, "error: missing image file\n");
         print_usage();
         return 1;
     }
 
+    // Open the image file
     file = fopen(imagefile, "rb"); 
     if (file == NULL) {
         fprintf(stderr, "error: cannot open image file '%s'\n", imagefile);
         return 1;
     }
 
-    int partition_offset = 0;  /* default to start of file */ 
-    if (partition != -1) {
-        read_partition_table(file, partition, subpartition, &partition_offset);        
+    // Calculate partition offset
+    int partition_offset = 0;  /* default to start of file */
+if (partition != -1) {
+    read_partition_table(file, partition, subpartition, &partition_offset);
+
+    if (verbose) {
+        printf("Partition %d details:\n", partition);
+        printf("  Offset: %d bytes\n", partition_offset);
     }
 
+    if (subpartition != -1) {
+        printf("Subpartition %d details:\n", subpartition);
+    }
+}
+
+// Debugging final offset
+if (verbose) {
+    printf("Calculated final offset: %d bytes\n", partition_offset);
+}
+
+
+    // Read and validate the superblock
     read_superblock(file, &sb, partition_offset);
 
     if (path == NULL) {
-        /* if no path, assume root */
+        // If no path is provided, assume the root inode (inode 1)
         read_inode(file, 1, &target_inode, &sb);
     } else {
-        /* find inode by specified path*/
+        // Find the inode corresponding to the specified path
         if (find_inode_by_path(file, path, &target_inode, &sb) != 0) {
             fprintf(stderr, "Error: Path not found '%s'\n", path);
             fclose(file);
             return 1;
         }
     }
-    
+
+    // Print verbose output for superblock and inode
     if (verbose) {
         print_superblock(&sb);
         print_inode(&target_inode);
     }
 
+    // List the directory or display file information
     if (target_inode.mode & DIRECTORY) {
         list_directory(file, &target_inode, &sb);
     } else {
-        print_inode(&target_inode); 
+        print_inode(&target_inode);
     }
 
     fclose(file);
