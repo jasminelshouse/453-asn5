@@ -2,24 +2,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "minget.h"
+#include "shared.h"
 
 /* function declarations */
-void read_partition_table(FILE *file, int partition, int subpartition, int *partition_offset);
-void read_superblock(FILE *file, struct superblock *sb, int partition_offset, int verbose);
-int find_inode_by_path(FILE *file, const char *path, struct inode *inode, struct superblock *sb);
+void read_superblock(FILE *file, struct superblock *sb, int partition_offset,
+ int verbose);
+int find_inode_by_path(FILE *file, const char *path, struct inode *inode, 
+struct superblock *sb);
 void print_inode(struct inode *inode);
-void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb, int partition_offset, FILE *output);
-
-
-void print_usage() {
-    printf("Usage: minget [-v] [-p part [-s sub]] imagefile srcpath [dstpath]\n");
-    printf("Options:\n"
-       "\t-p\t part    --- select partition for filesystem (default: none)\n"
-       "\t-s\t sub     --- select subpartition for filesystem (default: none)\n"
-       "\t-h\t help    --- print usage information and exit\n"
-       "\t-v\t verbose --- increase verbosity level\n");
-}
+void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb,
+int partition_offset, FILE *output);
 
 
 void read_superblock(FILE *file, struct superblock *sb, 
@@ -154,12 +146,14 @@ void print_inode(struct inode *inode) {
 int traverse_directory(FILE *file, struct inode *current_inode,
                        const char *entry_name, 
                         struct inode *found_inode, struct superblock *sb) {
-    char *buffer = malloc(sb->blocksize);
+    int i;
+    char *buffer;
+    *buffer = malloc(sb->blocksize);
     if (!buffer) {
         fprintf(stderr, "Error: Memory allocation failed.\n");
         return 0;
     }
-    int i;
+    
     for (i = 0; i < DIRECT_ZONES; i++) {
         if (current_inode->zone[i] == 0) {
             /* printf("DEBUG: Zone %d is empty, skipping.\n", i);*/
@@ -241,75 +235,19 @@ int find_inode_by_path(FILE *file, const char *path,
     return 0;
 }
 
-
-void read_partition_table(FILE *file, int partition, int subpartition,
-     int *partition_offset) {
-    uint8_t buffer[SECTOR_SIZE];
-    /** read first sector to access partition table. **/
-    fseek(file, 0, SEEK_SET);
-    fread(buffer, SECTOR_SIZE, 1, file);
-
-    struct partition_table *partitions = 
-        (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
-
-    
-    if (partition < 0 || partition >= 4) {
-        fprintf(stderr, "Invalid primary partition number: %d\n", partition);
-        exit(EXIT_FAILURE);
-    }
-
-    /** compute offset for selected primary partition. **/
-    uint32_t actual_sector = partitions[partition].IFirst;
-    *partition_offset = actual_sector * SECTOR_SIZE;
-    /*was getting negative numbers for a while so 
-    implemented this check*/
-    if (*partition_offset < 0) {
-    fprintf(stderr, "Error: Partition offset is invalid.\n");
-    exit(EXIT_FAILURE);
-    }
-
-    /*printf("Primary Partition %d: IFirst=%u, size=%u, 
-        Offset=%d bytes\n",partition, actual_sector, 
-        partitions[partition].size, *partition_offset);*/
-
-    if (subpartition != -1) {
-        fseek(file, *partition_offset, SEEK_SET);
-        fread(buffer, SECTOR_SIZE, 1, file);
-
-        struct partition_table *subpartitions = 
-            (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
-
-        if (subpartition < 0 || subpartition >= 4) {
-            fprintf(stderr, "Invalid subpartition number: %d\n", 
-                subpartition);
-            exit(EXIT_FAILURE);
-        }
-        /** compute subpartition offset. **/
-        uint32_t sub_actual_sector = subpartitions[subpartition].IFirst;
-        int subpartition_offset = sub_actual_sector * SECTOR_SIZE;
-
-        /*printf("DEBUG: Primary partition offset: %d bytes\n",
-             *partition_offset);
-        printf("DEBUG: Subpartition offset: %d bytes\n", 
-            subpartition_offset);*/
-     /** update final partition offset to include subpartition. **/
-        *partition_offset = subpartition_offset;
-
-       
-    }
-}
-
-
-void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb, int partition_offset, FILE *output) {
+void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb,
+ int partition_offset, FILE *output) {
     /* simple implementation assuming all data is in direct zones */
     char buffer[sb->blocksize];
     int i;
     for (i = 0; i < DIRECT_ZONES; i++) {
         if (inode->zone[i] == 0) continue;  /* skip empty zones */
 
-        int block_address = partition_offset + inode->zone[i] * sb->blocksize;
+        int block_address = partition_offset + 
+        inode->zone[i] * sb->blocksize;
         fseek(file, block_address, SEEK_SET);
-        int to_read = (inode->size < sb->blocksize) ? inode->size : sb->blocksize;
+        int to_read = 
+        (inode->size < sb->blocksize) ? inode->size : sb->blocksize;
         fread(buffer, to_read, 1, file);
         fwrite(buffer, to_read, 1, output);
 
@@ -319,7 +257,7 @@ void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb, 
 }
 
 
-int main(int argc, char *argv[]) {
+int minget_main(int argc, char *argv[]) {
     int verbose = 0;
     int partition = -1;
     int subpartition = -1;
@@ -340,20 +278,20 @@ int main(int argc, char *argv[]) {
             } else if (strcmp(argv[i], "-p") == 0) {
                 if (++i >= argc) {
                     fprintf(stderr, "Error: Missing value for -p\n");
-                    print_usage();
+                    print_usage_minget();
                     return EXIT_FAILURE;
                 }
                 partition = atoi(argv[i]);
             } else if (strcmp(argv[i], "-s") == 0) {
                 if (++i >= argc) {
                     fprintf(stderr, "Error: Missing value for -s\n");
-                    print_usage();
+                    print_usage_minget();
                     return EXIT_FAILURE;
                 }
                 subpartition = atoi(argv[i]);
             } else {
                 fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
-                print_usage();
+                print_usage_minget();
                 return EXIT_FAILURE;
             }
         } else if (!imagefile) {
@@ -364,14 +302,14 @@ int main(int argc, char *argv[]) {
             dstpath = argv[i];
         } else {
             fprintf(stderr, "Error: Too many arguments\n");
-            print_usage();
+            print_usage_minget();
             return EXIT_FAILURE;
         }
     }
 
     if (!imagefile || !srcpath) {
         fprintf(stderr, "Error: Missing required arguments\n");
-        print_usage();
+        print_usage_minget();
         return EXIT_FAILURE;
     }
 
@@ -386,7 +324,8 @@ int main(int argc, char *argv[]) {
     if (dstpath) {
         output = fopen(dstpath, "wb");
         if (!output) {
-            fprintf(stderr, "Error: Cannot open destination file '%s'\n", dstpath);
+            fprintf(stderr, "Error: Cannot open destination file '%s'\n", 
+            dstpath);
             fclose(file);
             return EXIT_FAILURE;
         }

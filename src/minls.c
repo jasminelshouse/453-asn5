@@ -2,19 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "minls.h"
+#include "shared.h"
 
 #define S_ISDIR(mode) (((mode) & DIRECTORY) == DIRECTORY)
-
-void print_usage() {
-    printf("Usage: minls [-v][-p part[-s sub]] imagefile [path]\n");
-    printf("Options:\n"
-       "\t-p\t part    --- select partition for filesystem (default: none)\n"
-       "\t-s\t sub     --- select subpartition for filesystem (default: none)\n"
-       "\t-h\t help    --- print usage information and exit\n"
-       "\t-v\t verbose --- increase verbosity level\n");
-
-}
 
 void read_superblock(FILE *file, struct superblock *sb, 
         int partition_offset, int verbose) {
@@ -361,66 +351,6 @@ int find_inode_by_path(FILE *file, const char *path,
     return 0;
 }
 
-
-void read_partition_table(FILE *file, int partition, int subpartition,
-     int *partition_offset) {
-    uint8_t buffer[SECTOR_SIZE];
-    /** read first sector to access partition table. **/
-    fseek(file, 0, SEEK_SET);
-    fread(buffer, SECTOR_SIZE, 1, file);
-
-    struct partition_table *partitions = 
-        (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
-
-    
-    if (partition < 0 || partition >= 4) {
-        fprintf(stderr, "Invalid primary partition number: %d\n", partition);
-        exit(EXIT_FAILURE);
-    }
-
-    /** compute offset for selected primary partition. **/
-    uint32_t actual_sector = partitions[partition].IFirst;
-    *partition_offset = actual_sector * SECTOR_SIZE;
-    /*was getting negative numbers for a while so 
-    implemented this check*/
-    if (*partition_offset < 0) {
-    fprintf(stderr, "Error: Partition offset is invalid.\n");
-    exit(EXIT_FAILURE);
-    }
-
-    /*printf("Primary Partition %d: IFirst=%u, size=%u, 
-        Offset=%d bytes\n",partition, actual_sector, 
-        partitions[partition].size, *partition_offset);*/
-
-    if (subpartition != -1) {
-        fseek(file, *partition_offset, SEEK_SET);
-        fread(buffer, SECTOR_SIZE, 1, file);
-
-        struct partition_table *subpartitions = 
-            (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
-
-        if (subpartition < 0 || subpartition >= 4) {
-            fprintf(stderr, "Invalid subpartition number: %d\n", 
-                subpartition);
-            exit(EXIT_FAILURE);
-        }
-        /** compute subpartition offset. **/
-        uint32_t sub_actual_sector = subpartitions[subpartition].IFirst;
-        int subpartition_offset = sub_actual_sector * SECTOR_SIZE;
-
-        /*printf("DEBUG: Primary partition offset: %d bytes\n",
-             *partition_offset);
-        printf("DEBUG: Subpartition offset: %d bytes\n", 
-            subpartition_offset);*/
-     /** update final partition offset to include subpartition. **/
-        *partition_offset = subpartition_offset;
-
-       
-    }
-}
-
-
-
 void print_partition_table(FILE *file, int partition_offset, 
     int print_subpartitions) {
     fseek(file, partition_offset, SEEK_SET);
@@ -503,7 +433,7 @@ void print_partition_table(FILE *file, int partition_offset,
 }
 
 
-int main(int argc, char *argv[]) {
+int minls_main(int argc, char *argv[]) {
     int verbose = 0;
     int partition = -1;
     int subpartition = -1;
@@ -515,7 +445,7 @@ int main(int argc, char *argv[]) {
 
    
     if (argc < 2) {
-        print_usage();
+        print_usage_minls();
         return EXIT_FAILURE;
     }
     /** parse args */
@@ -527,20 +457,20 @@ int main(int argc, char *argv[]) {
             } else if (strcmp(argv[i], "-p") == 0) {
                 if (++i >= argc) {
                     fprintf(stderr, "Error: Missing value for -p\n");
-                    print_usage();
+                    print_usage_minls();
                     return EXIT_FAILURE;
                 }
                 partition = atoi(argv[i]);
             } else if (strcmp(argv[i], "-s") == 0) {
                 if (++i >= argc) {
                     fprintf(stderr, "Error: Missing value for -s\n");
-                    print_usage();
+                    print_usage_minls();
                     return EXIT_FAILURE;
                 }
                 subpartition = atoi(argv[i]);
             } else {
                 fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
-                print_usage();
+                print_usage_minls();
                 return EXIT_FAILURE;
             }
         } else if (!imagefile) {
@@ -549,14 +479,14 @@ int main(int argc, char *argv[]) {
             path = argv[i];
         } else {
             fprintf(stderr, "Error: Too many arguments\n");
-            print_usage();
+            print_usage_minls();
             return EXIT_FAILURE;
         }
     }
 
     if (!imagefile) {
         fprintf(stderr, "Error: Missing image file\n");
-        print_usage();
+        print_usage_minls();
         return EXIT_FAILURE;
     }
 
