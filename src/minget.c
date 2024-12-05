@@ -303,7 +303,8 @@ void read_partition_table(FILE *file, int partition, int subpartition,
 void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb, int partition_offset, FILE *output) {
     /* simple implementation assuming all data is in direct zones */
     char buffer[sb->blocksize];
-    for (int i = 0; i < DIRECT_ZONES; i++) {
+    int i;
+    for (i = 0; i < DIRECT_ZONES; i++) {
         if (inode->zone[i] == 0) continue;  /* skip empty zones */
 
         int block_address = partition_offset + inode->zone[i] * sb->blocksize;
