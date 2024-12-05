@@ -11,7 +11,7 @@ void print_usage() {
 }
 
 void read_superblock(FILE *file, struct superblock *sb, int partition_offset, int verbose) {
-    int possible_offsets[] = {0, 1024, 2048}; // Adjusted to include 0 for subpartition start
+    int possible_offsets[] = {0, 1024, 1536, 2048}; // Adjusted to include 0 for subpartition start
     int num_offsets = sizeof(possible_offsets) / sizeof(possible_offsets[0]);
     long superblock_offset;
     int valid_superblock_found = 0;
@@ -133,6 +133,7 @@ void read_inode(FILE *file, int inode_num, struct inode *inode, struct superbloc
     fprintf(stderr, "DEBUG: inode_block=%d (inode_num=%d, inode_start_block=%d, inodes_per_block=%d)\n",
         inode_block, inode_num, inode_start_block, inodes_per_block);// Block containing the inode
     int inode_index = (inode_num - 1) % inodes_per_block; // Index of the inode within the block
+    printf("inode index: %d\n", inode_index);
     long inode_offset = (inode_block * sb->blocksize) + (inode_index * INODE_SIZE); // Byte offset to the inode
     fprintf(stderr, "DEBUG: Calculated inode_offset=%ld (block_start=%ld, inode_position=%ld)\n",
         inode_offset,
@@ -147,7 +148,9 @@ void read_inode(FILE *file, int inode_num, struct inode *inode, struct superbloc
         printf("DEBUG: inode_start_block=%d (should be > i_blocks + z_blocks)\n", inode_start_block);
         printf("DEBUG: inode_block=%d, inode_index=%d\n", inode_block, inode_index);
         printf("DEBUG: Calculated inode_offset=%ld (block=%d, index=%d)\n", inode_offset, inode_block, inode_index);
+        printf("DEBUG: inode size=%d\n", INODE_SIZE);
     }
+
 
     // Seek to the inode position
     if (fseek(file, inode_offset, SEEK_SET) != 0) {
@@ -192,6 +195,26 @@ void read_inode(FILE *file, int inode_num, struct inode *inode, struct superbloc
         }
         printf("  Indirect zone: %u\n", inode->indirect);
         printf("  Double indirect zone: %u\n", inode->two_indirect);
+    }
+
+     if ((inode->mode & 0xF000) == 0x6000) {  // Check if it's a block special file
+        printf("DEBUG: Inode %d is a block special file.\n", inode_num);
+
+        // Use zone[0] to find the starting block of the subpartition
+        if (inode->zone[0] != 0) {
+            long subpartition_offset = inode->zone[0] * sb->blocksize;
+            printf("DEBUG: Subpartition starts at offset %ld bytes.\n", subpartition_offset);
+            printf("firstdata: %d\n", sb->firstdata);
+            printf("subpartition zone: %d\n", inode->zone[0]);
+            printf("block size %d\n", sb->blocksize);
+
+            // Optionally: Read and validate the superblock of the subpartition
+            struct superblock subpartition_sb;
+            read_superblock(file, &subpartition_sb, subpartition_offset, 1);  // 1 = verbose mode
+            print_superblock(&subpartition_sb);
+        } else {
+            fprintf(stderr, "ERROR: Block special file has no valid zone pointer.\n");
+        }
     }
 }
 
@@ -254,6 +277,22 @@ void list_directory(FILE *file, struct inode *dir_inode, struct superblock *sb) 
 
             struct inode entry_inode;
             read_inode(file, entry->ino, &entry_inode, sb);
+
+            if ((entry_inode.mode & 0xF000) == 0x6000) {
+                printf("DEBUG: Entry '%s' is a block special file.\n", entry->name);
+                long subpartition_offset = entry_inode.zone[0] * sb->blocksize;
+                printf("subpartition zone: %d\n", entry_inode.zone[0]);
+                printf("block size %d\n", sb->blocksize);
+                printf("DEBUG: Subpartition starts at offset %ld bytes.\n", subpartition_offset);
+
+                // Read and validate subpartition superblock
+                struct superblock subpartition_sb;
+                read_superblock(file, &subpartition_sb, subpartition_offset, 1);
+                print_superblock(&subpartition_sb);
+
+                // Optionally traverse into the subpartition
+            }
+
 
             printf("%s %5d %s\n",
                    get_permissions(entry_inode.mode),
@@ -388,6 +427,7 @@ void read_partition_table(FILE *file, int partition, int subpartition, int *part
     fseek(file, 0, SEEK_SET);
     fread(buffer, SECTOR_SIZE, 1, file);
 
+    // Validate partition table signature
     if (buffer[BOOT_SIG_OFFSET] != 0x55 || buffer[BOOT_SIG_OFFSET + 1] != 0xAA) {
         fprintf(stderr, "Invalid partition table signature (Expected: 0x55AA, Found: 0x%02X%02X)\n",
                 buffer[BOOT_SIG_OFFSET], buffer[BOOT_SIG_OFFSET + 1]);
@@ -396,17 +436,25 @@ void read_partition_table(FILE *file, int partition, int subpartition, int *part
 
     struct partition_table *partitions = (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
 
+    // Validate primary partition index
     if (partition < 0 || partition >= 4) {
         fprintf(stderr, "Invalid primary partition number: %d\n", partition);
         exit(EXIT_FAILURE);
     }
 
-    uint32_t actual_sector = partitions[partition].IFirst;
-    *partition_offset = actual_sector * SECTOR_SIZE;
+    // Get primary partition info
+    uint32_t primary_sector = partitions[partition].IFirst;
+    *partition_offset = primary_sector * SECTOR_SIZE;
 
     printf("Primary Partition %d: IFirst=%u, size=%u, Offset=%d bytes\n",
-           partition, actual_sector, partitions[partition].size, *partition_offset);
+           partition, primary_sector, partitions[partition].size, *partition_offset);
 
+    if (partitions[partition].type != 0x81) {
+        fprintf(stderr, "Partition %d is not a Minix partition (type=0x%02X).\n", partition, partitions[partition].type);
+        exit(EXIT_FAILURE);
+    }
+
+    // Handle subpartition table
     if (subpartition != -1) {
         fseek(file, *partition_offset, SEEK_SET);
         fread(buffer, SECTOR_SIZE, 1, file);
@@ -418,15 +466,13 @@ void read_partition_table(FILE *file, int partition, int subpartition, int *part
             exit(EXIT_FAILURE);
         }
 
-        uint32_t sub_actual_sector = subpartitions[subpartition].IFirst;
-        int subpartition_offset = sub_actual_sector * SECTOR_SIZE;
+        uint32_t sub_sector = subpartitions[subpartition].IFirst;
+        int subpartition_offset = sub_sector * SECTOR_SIZE;
 
-        printf("DEBUG: Primary partition offset: %d bytes\n", *partition_offset);
-        printf("DEBUG: Subpartition offset: %d bytes\n", subpartition_offset);
+        printf("Subpartition %d: IFirst=%u, size=%u, Offset=%d bytes\n",
+               subpartition, sub_sector, subpartitions[subpartition].size, subpartition_offset);
 
         *partition_offset = subpartition_offset;
-
-        printf("DEBUG: Final partition offset: %d bytes\n", *partition_offset);
     }
 }
 

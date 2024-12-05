@@ -1,0 +1,67 @@
+Name:
+    Kylie O'Donnell
+    Jasmine Shouse 
+
+Notes: 
+
+We are having a lot of trouble with trying to figure out what went wrong in this
+assignment regarding calculating the inodes and its offsets. We initally got
+the superblock numbers for TestImage working with minls. However, we started
+to run into issues with calculating inodes and direct zones. After working
+through and figuring out the issue for TestImage, we moved onto working on
+the HardDisk where we dealt with a partition and a subpartition. This threw us
+for a loop. Nothing was lining up, so long story short, after a ton of debug 
+statements and calculating we were able to line up the superblock contents and
+the computed fields. But again, we ran into the issue of calculating the File
+inode and direct zones. Because these weren't reading properly, we weren't able
+to find the correct files in the partition to print out. 
+
+We're stumped because we are 99.999% sure we're calculating our inode offsets
+correctly, yet we aren't parsing the right raw inode data, hence our wrong file
+inode and direct zones. 
+
+These were the calculations we were doing to find our inode offset.
+
+inode_offset = (inode_block * blocksize) + (inode_index * inode_size)
+inode_offset = (179 * 4096) + ( 0 * 64)
+inode_offset = 16384 
+
+This did not bring us to find the correct file inode structure of the 
+subpartition. We think it's due to not accurately accessing the subpartition,
+and instead we're still trying to read stuff from the partition. However,
+we checked our subpartition and even used -xxd to create a hex dump for blocks
+of data to see if we were able to find the correct offset of the subpartition. 
+
+kylieodonnell@MacBook-Air-294 src % xxd -s 3694592 -l 512 images/HardDisk 
+00386000: 3a2d 7405 803a 2075 03ff 45dc 8b55 ec2b  :-t..: u..E..U.+
+00386010: 55f8 8955 f485 d20f 8e61 0100 00f7 c701  U..U.....a......
+00386020: 0000 000f 8555 0100 008b 55f4 0155 d883  .....U....U..U..
+00386030: 7ddc 000f 84f8 0000 00f7 c700 0400 000f  }...............
+00386040: 845c 0000 00ff 4df8 ff45 d88b 164a 8916  .\....M..E...J..
+00386050: 7816 8b45 d0ff 45d0 0fb6 108b 4614 8346  x..E..E.....F..F
+00386060: 1401 8810 89d0 eb12 8b45 d0ff 45d0 0fbe  .........E..E...
+00386070: 0056 50e8 0402 0000 5959 3dff ffff ff0f  .VP.....YY=.....
+00386080: 85ac 0000 0083 7dd8 0074 0c8b 55d8 f7da  ......}..t..U...
+00386090: 89d0 e9a2 0100 00b8 ffff ffff e998 0100  ................
+003860a0: 0083 6df8 0283 45d8 028b 164a 8916 7816  ..m...E....J..x.
+003860b0: 8b45 d0ff 45d0 0fb6 108b 4614 8346 1401  .E..E.....F..F..
+003860c0: 8810 89d0 eb12 8b45 d0ff 45d0 0fbe 0056  .......E..E....V
+003860d0: 50e8 a601 0000 5959 3dff ffff ff74 368b  P.....YY=....t6.
+003860e0: 164a 8916 7816 8b45 d0ff 45d0 0fb6 108b  .J..x..E..E.....
+003860f0: 4614 8346 1401 8810 89d0 eb12 8b45 d0ff  F..F.........E..
+00386100: 45d0 0fbe 0056 50e8 7001 0000 5959 3dff  E....VP.p...YY=.
+00386110: ffff ff75 1c83 7dd8 0074 0c8b 55d8 f7da  ...u..}..t..U...
+00386120: 89d0 e912 0100 00b8 ffff ffff e908 0100  ................
+00386130: 008b 164a 8916 7813 8b55 e40f b6ca 8b46  ...J..x..U.....F
+00386140: 1483 4614 0188 0889 c8eb 0b56 ff75 e4e8  ..F........V.u..
+00386150: 2801 0000 5959 3dff ffff ff75 1c83 7dd8  (...YY=....u..}.
+00386160: 0074 0c8b 55d8 f7da 89d0 e9ca 0000 00b8  .t..U...........
+00386170: ffff ffff e9c0 0000 00ff 4df4 75b3 8b55  ..........M.u..U
+00386180: f801 55d8 ff4d f80f 8852 0000 008b 164a  ..U..M...R.....J
+00386190: 8916 7816 8b45 d0ff 45d0 0fb6 108b 4614  ..x..E..E.....F.
+003861a0: 8346 1401 8810 89d0 eb12 8b45 d0ff 45d0  .F.........E..E.
+003861b0: 0fbe 0056 50e8 c200 0000 5959 3dff ffff  ...VP.....YY=...
+003861c0: ff75 c183 7dd8 0074 0c8b 55d8 f7da 89d0  .u..}..t..U.....
+003861d0: e964 0000 00b8 ffff ffff e95a 0000 0083  .d.........Z....
+003861e0: 7df4 007e 068b 55f4 0155 d8ff 4df4 0f88  }..~..U..U..M...
+003861f0: 23fa ffff 8b16 4a89 1678 138b 55e4 0fb6  #.....J..x..U...

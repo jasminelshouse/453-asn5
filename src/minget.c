@@ -44,6 +44,8 @@ void read_inode(FILE *file, int inode_num, struct inode *inode,
     fseek(file, sb->blocksize * inode_block + inode_index * INODE_SIZE, 
     SEEK_SET);
     fread(inode, sizeof(struct inode), 1, file);
+
+    
 }
 
 int traverse_directory(FILE *file, struct inode *current_inode, 
