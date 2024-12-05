@@ -4,19 +4,52 @@
 
 void read_superblock(FILE *file, struct superblock *sb, 
         int partition_offset, int verbose) {
+    /* for typical offset, and 3*512 alignment*/
+    int i;
+    int possible_offsets[] = {0, 1536, 1024, 2048}; 
+    int num_offsets = 
+        sizeof(possible_offsets) / sizeof(possible_offsets[0]);
+    long superblock_offset;
+    int valid_superblock_found = 0;
+
+    for (i=0; i < num_offsets; i++) {
+        superblock_offset = partition_offset + possible_offsets[i];
+
+        if (verbose) {
+            /* printf("DEBUG: Trying superblock offset: %ld\n", 
+        superblock_offset);*/
+        }
+        
+
+        if (fseek(file, superblock_offset, SEEK_SET) != 0) {
+            perror("Failed to seek to superblock");
+            continue;
+        }
+
+        if (fread(sb, sizeof(struct superblock), 1, file) != 1) {
+            perror("Failed to read superblock");
+            continue;
+        }
+
+        if (sb->magic == MAGIC_NUM || sb->magic == MAGIC_NUM_OLD ||
+            sb->magic == R_MAGIC_NUM || sb->magic == R_MAGIC_NUM_OLD) {
+            valid_superblock_found = 1;
+            if (verbose) {
+                /* printf("DEBUG: Valid superblock found at offset: %ld\n", 
+                superblock_offset);*/
+            }
+            break;
+        } else {
+            if (verbose) {
+                /*printf("DEBUG: Invalid magic number: 0x%x at offset: 
+                %ld\n", sb->magic, superblock_offset);*/
+            }
+        }
+    }
+
     
-    /* move fp to location of superblock*/
-    fseek(file, partition_offset + 1024, SEEK_SET);
-
-    /* read sb data into structure */
-    fread(sb, sizeof(struct superblock), 1, file);
-
-    /* validate magic num */
-    if (sb->magic != MAGIC_NUM && sb->magic != R_MAGIC_NUM) {
-
-        /* error message if not valid */
-        fprintf(stderr, "Bad magic number. (0x%x)\nThis doesn’t look like "
-               "a MINIX filesystem.\n", sb->magic);
+    if (!valid_superblock_found) {
+        fprintf(stderr, "ERROR: Failed to locate a valid superblock.\n");
         exit(EXIT_FAILURE);
     }
 }

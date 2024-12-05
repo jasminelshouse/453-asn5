@@ -103,13 +103,17 @@ struct fileent {
 } __attribute__((packed));
 
 /* Shared function declarations */
-void read_superblock(FILE *file, struct superblock *sb, int partition_offset, int verbose);
-void read_inode(FILE *file, int inode_num, struct inode *inode, struct superblock *sb);
+void read_superblock(FILE *file, struct superblock *sb, int partition_offset, 
+int verbose);
+void read_inode(FILE *file, int inode_num, struct inode *inode, 
+struct superblock *sb);
 const char *get_permissions(uint16_t mode);
 void print_inode(struct inode *inode);
-int traverse_directory(FILE *file, struct inode *current_inode, const char *entry_name,
+int traverse_directory(FILE *file, struct inode *current_inode, 
+const char *entry_name,
                        struct inode *found_inode, struct superblock *sb);
-int find_inode_by_path(FILE *file, const char *path, struct inode *inode, struct superblock *sb);
+int find_inode_by_path(FILE *file, const char *path, struct inode *inode,
+struct superblock *sb);
 void print_usage_minget(void);
 void print_usage_minls(void);
 void read_partition_table(FILE *file, int partition, int subpartition, 

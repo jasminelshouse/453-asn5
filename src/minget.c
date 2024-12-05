@@ -15,14 +15,14 @@ void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb,
     /* simple implementation assuming all data is in direct zones */
     char *buffer = malloc(sb->blocksize);
     int i;
+    int block_address;
+    int to_read;
     for (i = 0; i < DIRECT_ZONES; i++) {
         if (inode->zone[i] == 0) continue;  /* skip empty zones */
 
-        int block_address = partition_offset + 
-        inode->zone[i] * sb->blocksize;
+        block_address = partition_offset + inode->zone[i] * sb->blocksize;
         fseek(file, block_address, SEEK_SET);
-        int to_read = 
-        (inode->size < sb->blocksize) ? inode->size : sb->blocksize;
+        to_read = (inode->size < sb->blocksize) ? inode->size : sb->blocksize;
         fread(buffer, to_read, 1, file);
         fwrite(buffer, to_read, 1, output);
 
@@ -43,6 +43,7 @@ int minget_main(int argc, char *argv[]) {
     FILE *output = stdout;
     struct superblock sb;
     struct inode src_inode;
+    int partition_offset = 0;
 
     /* argument parsing logic */
     int i;
@@ -107,7 +108,6 @@ int minget_main(int argc, char *argv[]) {
     }
 
     /* read partition and subpart info */
-    int partition_offset = 0;
     if (partition != -1) {
         read_partition_table(file, partition, subpartition, &partition_offset);
     }

@@ -80,12 +80,15 @@ const char *get_permissions(uint16_t mode) {
 }
 
 void list_directory(FILE *file, struct inode *dir_inode, struct superblock *sb){
+    int i;
+    int block_address;
+    char *buffer = malloc(sb->blocksize);
+    int offset = 0;
     if (!(dir_inode->mode & DIRECTORY)) {
         fprintf(stderr, "Error: Not a directory.\n");
         return;
     }
 
-    char *buffer = malloc(sb->blocksize);
     if (!buffer) {
         fprintf(stderr, "Memory allocation failed.\n");
         return;
@@ -94,17 +97,16 @@ void list_directory(FILE *file, struct inode *dir_inode, struct superblock *sb){
     printf("/:\n");
 
     /* iterate through direct zones of directory inode */
-    for (int i = 0; i < DIRECT_ZONES; i++) {
+    for (i = 0; i < DIRECT_ZONES; i++) {
         if (dir_inode->zone[i] == 0) continue;
 
-        int block_address = sb->firstdata;
+        block_address = sb->firstdata;
 
         /* seek to calculated block position in file*/
         fseek(file, block_address * sb->blocksize, SEEK_SET);
         fread(buffer, sb->blocksize, 1, file);
 
         /* process each directory entry within block */
-        int offset = 0;
         while (offset < sb->blocksize) {
             struct fileent *entry = (struct fileent *)(buffer + offset);
             if (entry->ino != 0) {
@@ -124,17 +126,23 @@ void list_directory(FILE *file, struct inode *dir_inode, struct superblock *sb){
 
 void print_partition_table(FILE *file, int partition_offset, 
     int print_subpartitions) {
-    fseek(file, partition_offset, SEEK_SET);
-    uint8_t buffer[SECTOR_SIZE];
-    fread(buffer, SECTOR_SIZE, 1, file);
 
+    int i;
+    uint8_t buffer[SECTOR_SIZE];
     struct partition_table *partitions = 
         (struct partition_table *)(buffer + PARTITION_TABLE_OFFSET);
+
+    fseek(file, partition_offset, SEEK_SET);
+
+    
+
+    fread(buffer, SECTOR_SIZE, 1, file);
+
     printf("Partition table:\n");
     printf("       ----Start----      ------End-----\n");
     printf(
     "  Boot head  sec  cyl Type head  sec  cyl      First       Size\n");
-    int i;
+    
     for (i = 0; i < 4; i++) {
        
         int start_cyl = 
@@ -156,7 +164,6 @@ void print_partition_table(FILE *file, int partition_offset,
     }
 
     if (print_subpartitions) {
-        int i;
         for (i = 0; i < 4; i++) {
             if (partitions[i].type != 0 && partitions[i].size > 1) {
                
@@ -213,6 +220,8 @@ int minls_main(int argc, char *argv[]) {
     FILE *file;
     struct superblock sb;
     struct inode target_inode;
+    int i;
+    int partition_offset = 0;
 
    
     if (argc < 2) {
@@ -220,7 +229,7 @@ int minls_main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     /** parse args */
-    int i;
+    
     for (i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
             if (strcmp(argv[i], "-v") == 0) {
@@ -269,7 +278,7 @@ int minls_main(int argc, char *argv[]) {
     }
 
     /** read partition and subpart info **/
-    int partition_offset = 0;
+   
     if (partition != -1) {
         read_partition_table(file, partition, subpartition, 
             &partition_offset);
@@ -283,6 +292,16 @@ int minls_main(int argc, char *argv[]) {
 
    /** read superblock of selected partition. **/
     read_superblock(file, &sb, partition_offset, verbose);
+
+
+    if (sb.magic != MAGIC_NUM && sb.magic != R_MAGIC_NUM) {
+
+        /* error message if not valid */
+        fprintf(stderr, "Bad magic number. (0x%x)\nThis doesn’t look like "
+               "a MINIX filesystem.\n", sb.magic);
+        exit(EXIT_FAILURE);
+    }
+
     if (verbose) {
         print_superblock(&sb);
         print_computed_fields(&sb);
