@@ -8,7 +8,7 @@
 #define DIRECTORY_ENTRY_SIZE 64
 
 /* Function declarations for minget */
-void print_usage_minget();
+void print_usage_minget(void);
 int minget_main(int argc, char *argv[]);
 
 #endif /* MINGET_H */
