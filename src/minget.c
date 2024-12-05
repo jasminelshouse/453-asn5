@@ -14,6 +14,11 @@ void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb, 
 
 void print_usage() {
     printf("Usage: minget [-v] [-p part [-s sub]] imagefile srcpath [dstpath]\n");
+    printf("Options:\n"
+       "\t-p\t part    --- select partition for filesystem (default: none)\n"
+       "\t-s\t sub     --- select subpartition for filesystem (default: none)\n"
+       "\t-h\t help    --- print usage information and exit\n"
+       "\t-v\t verbose --- increase verbosity level\n");
 }
 
 
