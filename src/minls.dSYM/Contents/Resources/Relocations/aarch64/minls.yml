@@ -2,19 +2,19 @@
 triple:          'arm64-apple-darwin'
 binary-path:     minls
 relocations:
-  - { offsetInCU: 0x26, offset: 0x26, size: 0x8, addend: 0x0, symName: _print_usage, symObjAddr: 0x0, symBinAddr: 0x10000189C, symSize: 0x28 }
-  - { offsetInCU: 0x41, offset: 0x41, size: 0x8, addend: 0x0, symName: _get_permissions, symObjAddr: 0x83C, symBinAddr: 0x1000020D8, symSize: 0x150 }
-  - { offsetInCU: 0x66, offset: 0x66, size: 0x8, addend: 0x0, symName: _get_permissions.perms, symObjAddr: 0x59BF, symBinAddr: 0x100008000, symSize: 0x0 }
-  - { offsetInCU: 0x16E, offset: 0x16E, size: 0x8, addend: 0x0, symName: _print_usage, symObjAddr: 0x0, symBinAddr: 0x10000189C, symSize: 0x28 }
-  - { offsetInCU: 0x183, offset: 0x183, size: 0x8, addend: 0x0, symName: _read_superblock, symObjAddr: 0x28, symBinAddr: 0x1000018C4, symSize: 0x26C }
-  - { offsetInCU: 0x225, offset: 0x225, size: 0x8, addend: 0x0, symName: _print_superblock, symObjAddr: 0x294, symBinAddr: 0x100001B30, symSize: 0x194 }
-  - { offsetInCU: 0x257, offset: 0x257, size: 0x8, addend: 0x0, symName: _print_computed_fields, symObjAddr: 0x428, symBinAddr: 0x100001CC4, symSize: 0x2A4 }
-  - { offsetInCU: 0x315, offset: 0x315, size: 0x8, addend: 0x0, symName: _read_inode, symObjAddr: 0x6CC, symBinAddr: 0x100001F68, symSize: 0x170 }
-  - { offsetInCU: 0x3C7, offset: 0x3C7, size: 0x8, addend: 0x0, symName: _list_directory, symObjAddr: 0x98C, symBinAddr: 0x100002228, symSize: 0x260 }
-  - { offsetInCU: 0x493, offset: 0x493, size: 0x8, addend: 0x0, symName: _traverse_directory, symObjAddr: 0xBEC, symBinAddr: 0x100002488, symSize: 0x1F0 }
-  - { offsetInCU: 0x548, offset: 0x548, size: 0x8, addend: 0x0, symName: _print_inode, symObjAddr: 0xDDC, symBinAddr: 0x100002678, symSize: 0x25C }
-  - { offsetInCU: 0x5A7, offset: 0x5A7, size: 0x8, addend: 0x0, symName: _find_inode_by_path, symObjAddr: 0x1038, symBinAddr: 0x1000028D4, symSize: 0x1BC }
-  - { offsetInCU: 0x63A, offset: 0x63A, size: 0x8, addend: 0x0, symName: _read_partition_table, symObjAddr: 0x11F4, symBinAddr: 0x100002A90, symSize: 0x244 }
-  - { offsetInCU: 0x6EB, offset: 0x6EB, size: 0x8, addend: 0x0, symName: _print_partition_table, symObjAddr: 0x1438, symBinAddr: 0x100002CD4, symSize: 0x4FC }
-  - { offsetInCU: 0x81A, offset: 0x81A, size: 0x8, addend: 0x0, symName: _main, symObjAddr: 0x1934, symBinAddr: 0x1000031D0, symSize: 0x4E0 }
+  - { offsetInCU: 0x26, offset: 0x26, size: 0x8, addend: 0x0, symName: _print_usage, symObjAddr: 0x0, symBinAddr: 0x100001884, symSize: 0x28 }
+  - { offsetInCU: 0x41, offset: 0x41, size: 0x8, addend: 0x0, symName: _get_permissions, symObjAddr: 0x83C, symBinAddr: 0x1000020C0, symSize: 0x150 }
+  - { offsetInCU: 0x66, offset: 0x66, size: 0x8, addend: 0x0, symName: _get_permissions.perms, symObjAddr: 0x59F5, symBinAddr: 0x100008000, symSize: 0x0 }
+  - { offsetInCU: 0x16E, offset: 0x16E, size: 0x8, addend: 0x0, symName: _print_usage, symObjAddr: 0x0, symBinAddr: 0x100001884, symSize: 0x28 }
+  - { offsetInCU: 0x183, offset: 0x183, size: 0x8, addend: 0x0, symName: _read_superblock, symObjAddr: 0x28, symBinAddr: 0x1000018AC, symSize: 0x26C }
+  - { offsetInCU: 0x225, offset: 0x225, size: 0x8, addend: 0x0, symName: _print_superblock, symObjAddr: 0x294, symBinAddr: 0x100001B18, symSize: 0x194 }
+  - { offsetInCU: 0x257, offset: 0x257, size: 0x8, addend: 0x0, symName: _print_computed_fields, symObjAddr: 0x428, symBinAddr: 0x100001CAC, symSize: 0x2A4 }
+  - { offsetInCU: 0x315, offset: 0x315, size: 0x8, addend: 0x0, symName: _read_inode, symObjAddr: 0x6CC, symBinAddr: 0x100001F50, symSize: 0x170 }
+  - { offsetInCU: 0x3C7, offset: 0x3C7, size: 0x8, addend: 0x0, symName: _list_directory, symObjAddr: 0x98C, symBinAddr: 0x100002210, symSize: 0x26C }
+  - { offsetInCU: 0x4A2, offset: 0x4A2, size: 0x8, addend: 0x0, symName: _traverse_directory, symObjAddr: 0xBF8, symBinAddr: 0x10000247C, symSize: 0x1F0 }
+  - { offsetInCU: 0x557, offset: 0x557, size: 0x8, addend: 0x0, symName: _print_inode, symObjAddr: 0xDE8, symBinAddr: 0x10000266C, symSize: 0x25C }
+  - { offsetInCU: 0x5B6, offset: 0x5B6, size: 0x8, addend: 0x0, symName: _find_inode_by_path, symObjAddr: 0x1044, symBinAddr: 0x1000028C8, symSize: 0x1BC }
+  - { offsetInCU: 0x649, offset: 0x649, size: 0x8, addend: 0x0, symName: _read_partition_table, symObjAddr: 0x1200, symBinAddr: 0x100002A84, symSize: 0x244 }
+  - { offsetInCU: 0x6FA, offset: 0x6FA, size: 0x8, addend: 0x0, symName: _print_partition_table, symObjAddr: 0x1444, symBinAddr: 0x100002CC8, symSize: 0x4FC }
+  - { offsetInCU: 0x829, offset: 0x829, size: 0x8, addend: 0x0, symName: _main, symObjAddr: 0x1940, symBinAddr: 0x1000031C4, symSize: 0x4EC }
 ...

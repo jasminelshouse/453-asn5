@@ -161,7 +161,7 @@ const char *get_permissions(uint16_t mode) {
 }
 
 void list_directory(FILE *file, struct inode *dir_inode, 
-struct superblock *sb) {
+                    struct superblock *sb, int partition_offset) {
     if (!(dir_inode->mode & DIRECTORY)) {
         fprintf(stderr, "Error: Not a directory.\n");
         return;
@@ -181,8 +181,9 @@ struct superblock *sb) {
             continue;  // Skip empty zones
         }
 
-        // Calculate the block address
-        long block_address = (long)dir_inode->zone[i] * sb->blocksize;
+        // Calculate the block address, including the partition offset
+        long block_address = partition_offset + 
+                             ((long)dir_inode->zone[i] * sb->blocksize);
 
         /* Seek to the block position */
         if (fseek(file, block_address, SEEK_SET) != 0) {
@@ -203,7 +204,9 @@ struct superblock *sb) {
 
             if (entry->ino != 0 && strlen(entry->name) > 0) {
                 struct inode entry_inode;
-                read_inode(file, entry->ino, &entry_inode, sb, offset);
+
+                // Use partition_offset when reading the inode
+                read_inode(file, entry->ino, &entry_inode, sb, partition_offset);
 
                 printf("%s %5d %s\n",
                        get_permissions(entry_inode.mode),  // Permissions
@@ -213,7 +216,6 @@ struct superblock *sb) {
 
             offset += sizeof(struct fileent);
         }
-
     }
 
     free(buffer);
@@ -505,6 +507,8 @@ int main(int argc, char *argv[]) {
     if (partition != -1) {
         read_partition_table(file, partition, subpartition, &partition_offset);
         print_partition_table(file, partition_offset, 1);
+    } else {
+        partition_offset = 0;
     }
 
     read_superblock(file, &sb, partition_offset, 1);
@@ -528,7 +532,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (target_inode.mode & DIRECTORY) {
-        list_directory(file, &target_inode, &sb);
+        list_directory(file, &target_inode, &sb, partition_offset);
     } else {
         print_inode(&target_inode); 
     }
