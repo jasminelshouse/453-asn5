@@ -588,7 +588,6 @@ int main(int argc, char *argv[])
 
         if (verbose)
         {
-            printf("Partition %d: offset=%d\n", partition, partition_offset);
             print_partition_table(file, partition_offset, subpartition != -1);
         }
     }
