@@ -180,7 +180,10 @@ void list_directory(FILE *file, struct inode *dir_inode,
         return;
     }
 
-    char *buffer = malloc(sb->blocksize);
+    // Calculate the zone size
+    long zonesize = sb->blocksize << sb->log_zone_size;
+
+    char *buffer = malloc(zonesize);  // Allocate for the entire zone size
     if (!buffer) {
         fprintf(stderr, "Memory allocation failed.\n");
         return;
@@ -190,13 +193,12 @@ void list_directory(FILE *file, struct inode *dir_inode,
 
     for (int i = 0; i < DIRECT_ZONES; i++) {
         if (dir_inode->zone[i] == 0) {
-            printf("Empty zone %d\n", i);
             continue; // Skip empty zones
         }
 
-        // Calculate block address directly from the zone
+        // Correctly calculate block address using zone size
         long block_address = partition_offset + 
-                             ((long)(dir_inode->zone[i]) * sb->blocksize);
+                             ((long)(dir_inode->zone[i]) * zonesize);
 
         printf("Zone %d: dir_inode->zone[%d] = %u, block_address = %ld\n",
                i, i, dir_inode->zone[i], block_address);
@@ -206,15 +208,14 @@ void list_directory(FILE *file, struct inode *dir_inode,
             continue;
         }
 
-        if (fread(buffer, sb->blocksize, 1, file) != 1) {
+        if (fread(buffer, zonesize, 1, file) != 1) {
             perror("Failed to read block data");
             continue;
         }
 
         int offset = 0;
-        while (offset < sb->blocksize) {
+        while (offset < zonesize) {
             struct fileent *entry = (struct fileent *)(buffer + offset);
-            printf("entry->ino: %d, entry->name: %s\n", entry->ino, entry->name);
 
             if (entry->ino != 0 && strlen(entry->name) > 0) {
                 struct inode entry_inode;
