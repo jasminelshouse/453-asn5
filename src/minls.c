@@ -13,30 +13,18 @@ void print_usage() {
        "\t-s\t sub     --- select subpartition for filesystem (default: none)\n"
        "\t-h\t help    --- print usage information and exit\n"
        "\t-v\t verbose --- increase verbosity level\n");
-
 }
 
-void read_superblock(FILE *file, struct superblock *sb, 
-        int partition_offset, int verbose) {
-    /* for typical offset, and 3*512 alignment*/
-    int possible_offsets[] = {0, 1536, 1024, 2048}; 
-    int num_offsets = 
-        sizeof(possible_offsets) / sizeof(possible_offsets[0]);
+void read_superblock(FILE *file, struct superblock *sb, int partition_offset, 
+int verbose) {
+    // Common superblock offsets
+    int possible_offsets[] = {1024, 1536, 2048};
+    int num_offsets = sizeof(possible_offsets) / sizeof(possible_offsets[0]);
     long superblock_offset;
     int valid_superblock_found = 0;
 
-    if (verbose) {
-        /* printf("DEBUG: Starting superblock read. 
-        Partition offset: %d\n", partition_offset);*/
-    }
-    int i;
-    for (i=0; i < num_offsets; i++) {
+    for (int i = 0; i < num_offsets; i++) {
         superblock_offset = partition_offset + possible_offsets[i];
-
-        if (verbose) {
-            /* printf("DEBUG: Trying superblock offset: %ld\n", 
-        superblock_offset);*/
-        }
 
         if (fseek(file, superblock_offset, SEEK_SET) != 0) {
             perror("Failed to seek to superblock");
@@ -52,65 +40,24 @@ void read_superblock(FILE *file, struct superblock *sb,
             sb->magic == R_MAGIC_NUM || sb->magic == R_MAGIC_NUM_OLD) {
             valid_superblock_found = 1;
             if (verbose) {
-                /* printf("DEBUG: Valid superblock found at offset: %ld\n", 
-                superblock_offset);*/
             }
             break;
-        } else {
-            if (verbose) {
-                /*printf("DEBUG: Invalid magic number: 0x%x at offset: 
-                %ld\n", sb->magic, superblock_offset);*/
-            }
-        }
+        } 
+    }
+
+    if (sb->magic != MAGIC_NUM && sb->magic != R_MAGIC_NUM) {
+
+        /* error message if not valid */
+        fprintf(stderr, "Bad magic number. (0x%x)\nThis doesn’t look like "
+               "a MINIX filesystem.\n", sb->magic);
+        exit(EXIT_FAILURE);
     }
 
     if (!valid_superblock_found) {
-        fprintf(stderr, "ERROR: Failed to locate a valid superblock.\n");
+        fprintf(stderr, "Failed to locate a valid superblock.\n");
         exit(EXIT_FAILURE);
     }
 }
-
-
-
-
-
-
-void print_computed_fields(struct superblock *sb) {
-    int zone_size = sb->blocksize * (1 << sb->log_zone_size);
-    int ptrs_per_zone = zone_size / sizeof(uint32_t); 
-    int ino_per_block = sb->blocksize / INODE_SIZE;  
-    int fileent_size = DIRECTORY_ENTRY_SIZE;         
-    int ent_per_zone = zone_size / fileent_size;      
-
-    /* compute the version based on magic number*/
-    int version = (sb->magic == MAGIC_NUM) ? 3 : 
-        (sb->magic == MAGIC_NUM_OLD) ? 2 : 0;
-
-    /* first inode map, zone map, and inode block*/
-    /*typical start*/
-    int firstImap = 2; 
-    int firstZmap = firstImap + sb->i_blocks;
-    int firstIblock = firstZmap + sb->z_blocks;
-
-    /* wrongended (check for byte-swapped magic number)*/
-    int wrongended = (sb->magic == R_MAGIC_NUM || sb->magic == 
-        R_MAGIC_NUM_OLD) ? 1 : 0;
-
-    
-    printf("\nComputed Fields:\n");
-    printf("  version            %d\n", version);
-    printf("  firstImap          %d\n", firstImap);
-    printf("  firstZmap          %d\n", firstZmap);
-    printf("  firstIblock        %d\n", firstIblock);
-    printf("  zonesize        %d\n", zone_size);
-    printf("  ptrs_per_zone   %d\n", ptrs_per_zone);
-    printf("  ino_per_block     %d\n", ino_per_block);
-    printf("  wrongended         %d\n", wrongended);
-    printf("  fileent_size      %d\n", fileent_size);
-    printf("  max_filename      %d\n", DIRSIZ);
-    printf("  ent_per_zone      %d\n", ent_per_zone);
-}
-
 
 
 /* self explanatory */
@@ -130,31 +77,68 @@ void print_superblock(struct superblock *sb) {
     printf("  subversion %u\n", sb->subversion);
 }
 
+void print_computed_fields(struct superblock *sb) {
+    int zone_size = sb->blocksize * (1 << sb->log_zone_size);
+    int ptrs_per_zone = zone_size / sizeof(uint32_t);
+    int ino_per_block = sb->blocksize / INODE_SIZE;  
+    int fileent_size = DIRECTORY_ENTRY_SIZE;      
+    int ent_per_zone = zone_size / fileent_size;     
 
-void read_inode(FILE *file, int inode_offset, struct inode *inode, 
-    const struct superblock *sb) {
-    char buffer[INODE_SIZE];
+    // Compute version based on magic number
+    int version = 
+    (sb->magic == MAGIC_NUM) ? 3 : (sb->magic == MAGIC_NUM_OLD) ? 2 : 0;
 
-    /* read raw inode data*/
-    fseek(file, inode_offset, SEEK_SET);
-    fread(buffer, INODE_SIZE, 1, file);
+    // First inode map, zone map, and inode block
+    int firstImap = 2; // Typically starts at block 2
+    int firstZmap = firstImap + sb->i_blocks;
+    int firstIblock = firstZmap + sb->z_blocks;
 
-    /* map raw data to struct inode*/
-    inode->mode = *(uint16_t *)&buffer[0];
-    inode->links = *(uint16_t *)&buffer[2];
-    inode->uid = *(uint16_t *)&buffer[4];
-    inode->gid = *(uint16_t *)&buffer[6];
-    inode->size = *(uint32_t *)&buffer[8];
-    inode->atime = *(uint32_t *)&buffer[12];
-    inode->mtime = *(uint32_t *)&buffer[16];
-    inode->c_time = *(uint32_t *)&buffer[20];
-    int i;
-    /** populate direct zone ptrs from raw inode buffer **/
-    for ( i = 0; i < DIRECT_ZONES; i++) {
-        inode->zone[i] = *(uint32_t *)&buffer[24 + (i * 4)];
+    // wrongended (check for byte-swapped magic number)
+    int wrongended = (
+        sb->magic == R_MAGIC_NUM || sb->magic == R_MAGIC_NUM_OLD) ? 1 : 0;
+
+    // Maximum filename length (assumed constant)
+    int max_filename = DIRSIZ;
+
+    printf("\nComputed Fields:\n");
+    printf("  version            %d\n", version);
+    printf("  firstImap          %d\n", firstImap);
+    printf("  firstZmap          %d\n", firstZmap);
+    printf("  firstIblock        %d\n", firstIblock);
+    printf("  zonesize        %d\n", zone_size);
+    printf("  ptrs_per_zone   %d\n", ptrs_per_zone);
+    printf("  ino_per_block     %d\n", ino_per_block);
+    printf("  wrongended         %d\n", wrongended);
+    printf("  fileent_size      %d\n", fileent_size);
+    printf("  max_filename      %d\n", max_filename);
+    printf("  ent_per_zone      %d\n", ent_per_zone);
+}
+
+
+void read_inode(FILE *file, int inode_num, struct inode *inode,
+                struct superblock *sb, int partition_offset) {
+    int inodes_per_block = sb->blocksize / INODE_SIZE;
+    int inode_start_block = 2 + sb->i_blocks + sb->z_blocks;
+    int inode_block = ((inode_num - 1) / inodes_per_block) + inode_start_block;
+    int inode_index = (inode_num - 1) % inodes_per_block;
+
+    // Include the partition offset in the inode offset calculation
+    long inode_offset = partition_offset + 
+                        (inode_block * sb->blocksize) + 
+                        (inode_index * INODE_SIZE);
+
+    if (fseek(file, inode_offset, SEEK_SET) != 0) {
+        perror("Failed to seek to inode");
+        return;
     }
-    inode->indirect = *(uint32_t *)&buffer[52];
-    inode->two_indirect = *(uint32_t *)&buffer[56];
+
+    unsigned char raw_inode[INODE_SIZE];
+    if (fread(raw_inode, INODE_SIZE, 1, file) != 1) {
+        perror("Failed to read inode");
+        return;
+    }
+
+    memcpy(inode, raw_inode, sizeof(struct inode));
 }
 
 
@@ -177,249 +161,202 @@ const char *get_permissions(uint16_t mode) {
 }
 
 void list_directory(FILE *file, struct inode *dir_inode, 
-    const struct superblock *sb, int partition_offset) {
-    /* validate that the inode represents a directory. */
+struct superblock *sb) {
     if (!(dir_inode->mode & DIRECTORY)) {
-        fprintf(stderr, "Error: Inode is not a directory.\n");
+        fprintf(stderr, "Error: Not a directory.\n");
+        return;
+    }
+
+    char *buffer = malloc(sb->blocksize);
+    if (!buffer) {
+        fprintf(stderr, "Memory allocation failed.\n");
         return;
     }
 
     printf("/:\n");
 
-    /* iterate through the direct zones in the inode. */
-    int i;
-    for ( i = 0; i < DIRECT_ZONES; i++) {
-        /** skip unused or uninitialized zones **/
+    /* Iterate through direct zones of the directory inode */
+    for (int i = 0; i < DIRECT_ZONES; i++) {
         if (dir_inode->zone[i] == 0) {
-            fprintf(stderr, 
-                "DEBUG: Zone %d is unused or uninitialized.\n", i);
-            continue;
+            continue;  // Skip empty zones
         }
-     /** calculate block address for current zone **/
-        int block_address;
-        block_address = 
-            partition_offset + dir_inode->zone[i] * sb->blocksize;
-        fseek(file, block_address, SEEK_SET);
 
-        
-        char buffer[sb->blocksize];
-        fread(buffer, sb->blocksize, 1, file);
+        // Calculate the block address
+        long block_address = (long)dir_inode->zone[i] * sb->blocksize;
 
-        int offset = 0;
-        /*parse entries in the dir block*/
-        while (offset < sb->blocksize) {
-            struct fileent *entry = (struct fileent *)(buffer + offset);
-            /** skip invalid directory entry**/
-            if (entry->ino == 0) {
-                offset += DIRECTORY_ENTRY_SIZE;
-                continue;
-            }
-
-            /** calculate inode location for the directory entry **/
-            int inodes_per_block = sb->blocksize / INODE_SIZE;
-            int inode_block = sb->firstdata + 
-                (entry->ino / inodes_per_block);
-            int inode_index = entry->ino % inodes_per_block;
-            int inode_offset = partition_offset + 
-                (inode_block * sb->blocksize) + (inode_index * INODE_SIZE);
-
-            struct inode entry_inode;
-            read_inode(file, inode_offset, &entry_inode,sb);
-
-            printf("%s %5d %s\n",
-                   get_permissions(entry_inode.mode),
-                   entry_inode.size,
-                   entry->name);
-
-            offset += DIRECTORY_ENTRY_SIZE;
-        }
-    }
-}
-
-
-
-int traverse_directory(FILE *file, struct inode *current_inode,
-                       const char *entry_name, 
-                        struct inode *found_inode, struct superblock *sb) {
-    char *buffer = malloc(sb->blocksize);
-    if (!buffer) {
-        fprintf(stderr, "Error: Memory allocation failed.\n");
-        return 0;
-    }
-    int i;
-    for (i = 0; i < DIRECT_ZONES; i++) {
-        if (current_inode->zone[i] == 0) {
-            /* printf("DEBUG: Zone %d is empty, skipping.\n", i);*/
+        /* Seek to the block position */
+        if (fseek(file, block_address, SEEK_SET) != 0) {
+            perror("Failed to seek to block position");
             continue;
         }
 
-        /* Calculate block address*/
-        int block_address = sb->firstdata + (current_inode->zone[i] - 1);
-        if (block_address < sb->firstdata) {
-            fprintf(stderr, "Error: Invalid block address %d in zone %d\n",
-                 block_address, i);
+        /* Read the block data into the buffer */
+        if (fread(buffer, sb->blocksize, 1, file) != 1) {
+            perror("Failed to read block data");
             continue;
         }
 
-        /* Read directory block*/
-        fseek(file, block_address * sb->blocksize, SEEK_SET);
-        fread(buffer, sb->blocksize, 1, file);
-
+        /* Process each directory entry in the block */
         int offset = 0;
         while (offset < sb->blocksize) {
             struct fileent *entry = (struct fileent *)(buffer + offset);
 
-            if (entry->ino == 0) {  
-                offset += sizeof(struct fileent);
-                continue;
-            }
+            if (entry->ino != 0 && strlen(entry->name) > 0) {
+                struct inode entry_inode;
+                read_inode(file, entry->ino, &entry_inode, sb, offset);
 
-            /* printf("DEBUG: Directory entry: name='%s', ino=%d\n", 
-            entry->name, entry->ino);*/
-
-            if (strcmp(entry->name, entry_name) == 0) {
-                /* Found the target entry*/
-                read_inode(file, entry->ino, found_inode, sb);
-                free(buffer);
-                return 1;  
+                printf("%s %5d %s\n",
+                       get_permissions(entry_inode.mode),  // Permissions
+                       entry_inode.size,                  // File size
+                       entry->name);                      // File name
             }
 
             offset += sizeof(struct fileent);
         }
+
     }
 
     free(buffer);
-    return 0;  
 }
 
+int traverse_directory(FILE *file, struct inode *current_inode, 
+    const char *entry_name, struct inode *found_inode, struct superblock *sb) {
+    char buffer[4096]; 
+    struct fileent *entry;
+    int i, offset;
 
+    for (i = 0; i < DIRECT_ZONES; i++) {
+        if (current_inode->zone[i] == 0)
+            continue;
+
+        int block_address = sb->firstdata + (current_inode->zone[i] - 1);
+        fseek(file, block_address * sb->blocksize, SEEK_SET);
+        fread(buffer, 1, sb->blocksize, file);
+        offset = 0;
+
+        while (offset < sb->blocksize) {
+            entry = (struct fileent *)(buffer + offset);
+            if (entry->ino != 0 && strcmp(entry->name, entry_name) == 0) {
+                read_inode(file, entry->ino, found_inode, sb, offset);
+                return 1; /* found */
+            }
+            offset += sizeof(struct fileent);
+        }
+    }
+    return 0; /* not found */
+}
 
 
 void print_inode(struct inode *inode) {
+    int i; 
     printf("\nFile inode:\n");
-    printf("  unsigned short mode       0x%x    (%s)\n", inode->mode, 
-        get_permissions(inode->mode));
-    printf("  unsigned short links         %d\n", inode->links);
-    printf("  unsigned short uid           %d\n", inode->uid);
-    printf("  unsigned short gid           %d\n", inode->gid);
-    printf("  uint32_t size                %u\n", inode->size);
-
-    /* safely handle packed ones*/
-    time_t access_time = inode->atime;
-    time_t mod_time = inode->mtime;
-    time_t change_time = inode->c_time;  
-
-    printf("  uint32_t atime     %u    --- %s", inode->atime, 
-        ctime(&access_time));
-    printf("  uint32_t mtime     %u    --- %s", inode->mtime, 
-        ctime(&mod_time));
-    printf("  uint32_t ctime     %u    --- %s", inode->c_time, 
-        ctime(&change_time));
-
+    printf("  uint16_t mode 0x%x (%s)\n", inode->mode, 
+    get_permissions(inode->mode));
+    printf("  uint16_t links %d\n", inode->links);
+    printf("  uint16_t uid %d\n", inode->uid);
+    printf("  uint16_t gid %d\n", inode->gid);
+    printf("  uint32_t size %u\n", inode->size);
+    time_t atime = inode->atime;
+    printf("  uint32_t atime %u --- %s", inode->atime, ctime(&atime));
+    time_t mtime = inode->mtime;
+    printf("  uint32_t mtime %u --- %s", inode->mtime, ctime(&mtime));
+    time_t c_time = inode->c_time;
+    printf("  uint32_t ctime %u --- %s", inode->c_time, ctime(&c_time));
     printf("\nDirect zones:\n");
-    int i;
     for (i = 0; i < DIRECT_ZONES; i++) {
-        printf("  zone[%d]   = %u\n", i, inode->zone[i]);
+        printf("  zone[%d] = %u\n", i, inode->zone[i]);
     }
-    printf("  uint32_t indirect   = %u\n", inode->indirect);
-    printf("  uint32_t double     = %u\n", inode->two_indirect);
+    printf("uint32_t indirect %u\n", inode->indirect);
+    printf("uint32_t double %u\n", inode->two_indirect);
+    printf("\n");
 }
 
-
-int find_inode_by_path(FILE *file, const char *path, 
-    struct inode *inode, struct superblock *sb) {
-    if (strcmp(path, "/") == 0) {
-        read_inode(file, 1, inode, sb);  
-        return 0;
-    }
-
+int find_inode_by_path(FILE *file, const char *path, struct inode *inode,
+                       struct superblock *sb, int partition_offset) {
     char *path_copy = strdup(path);
     char *token = strtok(path_copy, "/");
     struct inode current_inode;
-    read_inode(file, 1, &current_inode, sb);  
-    /** tokenize and traverse each component in the path **/
+
+    if (strcmp(path, "/") == 0) {
+        // Read the root inode with partition_offset
+        read_inode(file, 1, inode, sb, partition_offset); 
+        free(path_copy);
+        return 0;
+    }
+
+    // Start at the root inode
+    read_inode(file, 1, &current_inode, sb, partition_offset); 
+
     while (token != NULL) {
-        if (!(current_inode.mode & DIRECTORY)) {
-            fprintf(stderr, "Error: '%s' is not a directory.\n", token);
+        // Check if the current inode is a directory
+        if (!S_ISDIR(current_inode.mode)) {
+            fprintf(stderr, "Not a directory\n");
             free(path_copy);
             return -1;
         }
 
-        if (!traverse_directory(file, &current_inode, token,
-             &current_inode, sb)) {
-            fprintf(stderr, "Error: Path component '%s' not found.\n",
-                 token);
+        printf("Resolving token: %s\n", token);
+
+        // Traverse the directory to find the next inode
+        if (!traverse_directory(file, &current_inode, token, 
+                                &current_inode, sb)) {
+            fprintf(stderr, "Path not found: %s\n", token);
             free(path_copy);
             return -1;
         }
 
         token = strtok(NULL, "/");
     }
-    
-    *inode = current_inode;  
+
+    *inode = current_inode; // Found the inode of the last token
     free(path_copy);
     return 0;
 }
 
 
-void read_partition_table(FILE *file, int partition, int subpartition,
-     int *partition_offset) {
+void read_partition_table(FILE *file, int partition, int subpartition, 
+int *partition_offset) {
     uint8_t buffer[SECTOR_SIZE];
-    /** read first sector to access partition table. **/
     fseek(file, 0, SEEK_SET);
     fread(buffer, SECTOR_SIZE, 1, file);
 
-    struct partition_table *partitions = 
-        (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
+    if (buffer[BOOT_SIG_OFFSET] != 0x55 || buffer[BOOT_SIG_OFFSET + 1] != 0xAA) 
+    {
+        fprintf(stderr,
+    "Invalid partition table signature (Expected: 0x55AA, Found: 0x%02X%02X)\n",
+                buffer[BOOT_SIG_OFFSET], buffer[BOOT_SIG_OFFSET + 1]);
+        exit(EXIT_FAILURE);
+    }
 
-    
+    struct partition_table *partitions = 
+    (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
+
     if (partition < 0 || partition >= 4) {
         fprintf(stderr, "Invalid primary partition number: %d\n", partition);
         exit(EXIT_FAILURE);
     }
 
-    /** compute offset for selected primary partition. **/
-    uint32_t actual_sector = partitions[partition].IFirst;
-    *partition_offset = actual_sector * SECTOR_SIZE;
-    /*was getting negative numbers for a while so 
-    implemented this check*/
-    if (*partition_offset < 0) {
-    fprintf(stderr, "Error: Partition offset is invalid.\n");
-    exit(EXIT_FAILURE);
-    }
+    uint32_t actual_sector = partitions[partition].IFirst; 
 
-    /*printf("Primary Partition %d: IFirst=%u, size=%u, 
-        Offset=%d bytes\n",partition, actual_sector, 
-        partitions[partition].size, *partition_offset);*/
+    // Calculate primary partition offset
+    *partition_offset = actual_sector * SECTOR_SIZE;
 
     if (subpartition != -1) {
         fseek(file, *partition_offset, SEEK_SET);
         fread(buffer, SECTOR_SIZE, 1, file);
 
         struct partition_table *subpartitions = 
-            (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
+        (struct partition_table *)&buffer[PARTITION_TABLE_OFFSET];
 
         if (subpartition < 0 || subpartition >= 4) {
-            fprintf(stderr, "Invalid subpartition number: %d\n", 
-                subpartition);
+            fprintf(stderr, "Invalid subpartition number: %d\n", subpartition);
             exit(EXIT_FAILURE);
         }
-        /** compute subpartition offset. **/
-        uint32_t sub_actual_sector = subpartitions[subpartition].IFirst;
-        int subpartition_offset = sub_actual_sector * SECTOR_SIZE;
 
-        /*printf("DEBUG: Primary partition offset: %d bytes\n",
-             *partition_offset);
-        printf("DEBUG: Subpartition offset: %d bytes\n", 
-            subpartition_offset);*/
-     /** update final partition offset to include subpartition. **/
-        *partition_offset = subpartition_offset;
-
-       
+        uint32_t sub_actual_sector = subpartitions[subpartition].IFirst; 
+        *partition_offset += sub_actual_sector * SECTOR_SIZE; 
     }
 }
-
-
 
 void print_partition_table(FILE *file, int partition_offset, 
     int print_subpartitions) {
@@ -502,109 +439,100 @@ void print_partition_table(FILE *file, int partition_offset,
     }
 }
 
-
 int main(int argc, char *argv[]) {
-    int verbose = 0;
+    int verbose = 0; 
     int partition = -1;
     int subpartition = -1;
     char *imagefile = NULL;
     char *path = NULL;
+    int i; 
     FILE *file;
     struct superblock sb;
     struct inode target_inode;
+    int partition_offset = 0;
 
-   
     if (argc < 2) {
         print_usage();
-        return EXIT_FAILURE;
+        return 1;
     }
-    /** parse args */
-    int i;
+    
     for (i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
             if (strcmp(argv[i], "-v") == 0) {
-                verbose = 1; 
+                verbose = 1;
             } else if (strcmp(argv[i], "-p") == 0) {
-                if (++i >= argc) {
-                    fprintf(stderr, "Error: Missing value for -p\n");
+                if (i + 1 >= argc) {  
+                    fprintf(stderr, "error: missing value for -p\n");
                     print_usage();
-                    return EXIT_FAILURE;
+                    return 1;
                 }
-                partition = atoi(argv[i]);
+                partition = atoi(argv[++i]);
             } else if (strcmp(argv[i], "-s") == 0) {
-                if (++i >= argc) {
-                    fprintf(stderr, "Error: Missing value for -s\n");
+                if (i + 1 >= argc) {  
+                    fprintf(stderr, "error: missing value for -s\n");
                     print_usage();
-                    return EXIT_FAILURE;
+                    return 1;
                 }
-                subpartition = atoi(argv[i]);
+                subpartition = atoi(argv[++i]);
             } else {
-                fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
+                fprintf(stderr, "error: unknown option '%s'\n", argv[i]);
                 print_usage();
-                return EXIT_FAILURE;
+                return 1;
             }
-        } else if (!imagefile) {
+        } else if (imagefile == NULL) {
             imagefile = argv[i];
-        } else if (!path) {
+        } else if (path == NULL) {
             path = argv[i];
         } else {
-            fprintf(stderr, "Error: Too many arguments\n");
+            fprintf(stderr, "error: too many arguments\n");
             print_usage();
-            return EXIT_FAILURE;
+            return 1;
         }
     }
 
-    if (!imagefile) {
-        fprintf(stderr, "Error: Missing image file\n");
+    if (imagefile == NULL) {
+        fprintf(stderr, "error: missing image file\n");
         print_usage();
-        return EXIT_FAILURE;
+        return 1;
     }
 
-  
-    file = fopen(imagefile, "rb");
-    if (!file) {
-        fprintf(stderr, "Error: Cannot open image file '%s'\n", imagefile);
-        return EXIT_FAILURE;
+    file = fopen(imagefile, "rb"); 
+    if (file == NULL) {
+        fprintf(stderr, "error: cannot open image file '%s'\n", imagefile);
+        return 1;
     }
 
-    /** read partition and subpart info **/
-    int partition_offset = 0;
     if (partition != -1) {
-        read_partition_table(file, partition, subpartition, 
-            &partition_offset);
+        read_partition_table(file, partition, subpartition, &partition_offset);
+        print_partition_table(file, partition_offset, 1);
+    }
 
-        if (verbose) {
-            /* printf("DEBUG: Partition offset = %d bytes\n",
-                 partition_offset);*/
-            print_partition_table(file, 0, 1);
+    read_superblock(file, &sb, partition_offset, 1);
+
+    if (path == NULL) {
+        /* if no path, assume root */
+        read_inode(file, 1, &target_inode, &sb, partition_offset);
+    } else {
+        /* find inode by specified path */
+        if (find_inode_by_path(file, path, &target_inode, &sb, partition_offset) != 0) {
+            fprintf(stderr, "Error: Path not found '%s'\n", path);
+            fclose(file);
+            return 1;
         }
     }
-
-   /** read superblock of selected partition. **/
-    read_superblock(file, &sb, partition_offset, verbose);
+    
     if (verbose) {
         print_superblock(&sb);
         print_computed_fields(&sb);
-    }
-
-   /*find target i node based on the provide path*/
-    if (!path) {
-        read_inode(file, 1, &target_inode, &sb); 
-    } else {
-        if (find_inode_by_path(file, path, &target_inode, &sb) != 0) {
-            fprintf(stderr, "Error: Path not found '%s'\n", path);
-            fclose(file);
-            return EXIT_FAILURE;
-        }
-    }
-
-  
-    if (verbose) {
         print_inode(&target_inode);
     }
 
-    
+    if (target_inode.mode & DIRECTORY) {
+        list_directory(file, &target_inode, &sb);
+    } else {
+        print_inode(&target_inode); 
+    }
 
     fclose(file);
-    return EXIT_SUCCESS;
+    return 0;
 }

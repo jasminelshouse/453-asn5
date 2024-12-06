@@ -5,20 +5,24 @@
 #include "minget.h"
 
 /* function declarations */
-void read_partition_table(FILE *file, int partition, int subpartition, int *partition_offset);
-void read_superblock(FILE *file, struct superblock *sb, int partition_offset, int verbose);
-int find_inode_by_path(FILE *file, const char *path, struct inode *inode, struct superblock *sb);
+void read_partition_table(FILE *file, int partition, int subpartition, 
+    int *partition_offset);
+void read_superblock(FILE *file, struct superblock *sb, int partition_offset, 
+    int verbose);
+int find_inode_by_path(FILE *file, const char *path, struct inode *inode, 
+    struct superblock *sb);
 void print_inode(struct inode *inode);
-void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb, int partition_offset, FILE *output);
+void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb, 
+    int partition_offset, FILE *output);
 
 
 void print_usage() {
-    printf("Usage: minget [-v] [-p part [-s sub]] imagefile srcpath [dstpath]\n");
-    printf("Options:\n"
-       "\t-p\t part    --- select partition for filesystem (default: none)\n"
-       "\t-s\t sub     --- select subpartition for filesystem (default: none)\n"
-       "\t-h\t help    --- print usage information and exit\n"
-       "\t-v\t verbose --- increase verbosity level\n");
+printf("Usage: minget [-v] [-p part [-s sub]] imagefile srcpath [dstpath]\n");
+printf("Options:\n"
+    "\t-p\t part    --- select partition for filesystem (default: none)\n"
+    "\t-s\t sub     --- select subpartition for filesystem (default: none)\n"
+    "\t-h\t help    --- print usage information and exit\n"
+    "\t-v\t verbose --- increase verbosity level\n");
 }
 
 
@@ -300,7 +304,8 @@ void read_partition_table(FILE *file, int partition, int subpartition,
 }
 
 
-void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb, int partition_offset, FILE *output) {
+void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb,
+ int partition_offset, FILE *output) {
     /* simple implementation assuming all data is in direct zones */
     char buffer[sb->blocksize];
     int i;
@@ -309,7 +314,8 @@ void copy_file_contents(FILE *file, struct inode *inode, struct superblock *sb, 
 
         int block_address = partition_offset + inode->zone[i] * sb->blocksize;
         fseek(file, block_address, SEEK_SET);
-        int to_read = (inode->size < sb->blocksize) ? inode->size : sb->blocksize;
+        int to_read = 
+        (inode->size < sb->blocksize) ? inode->size : sb->blocksize;
         fread(buffer, to_read, 1, file);
         fwrite(buffer, to_read, 1, output);
 
@@ -386,7 +392,8 @@ int main(int argc, char *argv[]) {
     if (dstpath) {
         output = fopen(dstpath, "wb");
         if (!output) {
-            fprintf(stderr, "Error: Cannot open destination file '%s'\n", dstpath);
+            fprintf(stderr, "Error: Cannot open destination file '%s'\n", 
+            dstpath);
             fclose(file);
             return EXIT_FAILURE;
         }
